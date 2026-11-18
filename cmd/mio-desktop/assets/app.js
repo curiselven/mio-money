@@ -71,29 +71,10 @@ function renderDiff(element, diff) {
   );
 }
 
-async function approve(review, button) {
-  if (!window.confirm(`确认生效「${review.account_name}」${review.as_of} 的快照？`)) return;
-  await run(button, async () => {
-    await call("Approve", review.snapshot_id);
-    showStatus("已确认生效");
-    await reload();
-  });
-}
-
-async function reject(review, button) {
-  const reason = window.prompt("可选：填写丢弃原因", "");
-  if (reason === null) return;
-  await run(button, async () => {
-    await call("Reject", review.snapshot_id, reason);
-    showStatus("已丢弃");
-    await reload();
-  });
-}
-
-async function run(button, action) {
+async function run(action) {
   if (busy) return;
   busy = true;
-  button.disabled = true;
+  setButtonsDisabled(true);
   status.hidden = true;
   try {
     await action();
@@ -101,7 +82,63 @@ async function run(button, action) {
     showStatus(errorText(error), "error");
   } finally {
     busy = false;
-    button.disabled = false;
+    setButtonsDisabled(false);
+  }
+}
+
+function setButtonsDisabled(disabled) {
+  for (const button of document.querySelectorAll("button")) {
+    button.disabled = disabled;
+  }
+}
+
+function closePanels() {
+  for (const card of list.children) {
+    card.querySelector(".actions").hidden = false;
+    card.querySelector(".confirm-panel").hidden = true;
+    card.querySelector(".reason").value = "";
+  }
+}
+
+function openPanel(card, review, mode) {
+  closePanels();
+  const panel = card.querySelector(".confirm-panel");
+  const reasonField = panel.querySelector(".reason-field");
+  const submit = panel.querySelector(".confirm-submit");
+  const isReject = mode === "reject";
+
+  card.querySelector(".actions").hidden = true;
+  panel.hidden = false;
+  panel.dataset.mode = mode;
+  panel.querySelector(".confirm-text").textContent = isReject
+    ? "确认丢弃这份快照？它不会写入正式数据。"
+    : "确认将这份快照写入正式数据？命中的异常规则会记入日志，之后可撤回。";
+  reasonField.hidden = !isReject;
+  submit.textContent = isReject ? "确认丢弃" : "确认";
+  submit.classList.toggle("danger", isReject);
+
+  const handler = () => {
+    const reason = panel.querySelector(".reason").value.trim();
+    const action = isReject
+      ? async () => {
+          await call("Reject", review.snapshot_id, reason);
+          showStatus("已丢弃");
+        }
+      : async () => {
+          await call("Approve", review.snapshot_id);
+          showStatus("已确认生效");
+        };
+    run(async () => {
+      await action();
+      await reload();
+    });
+  };
+  submit.onclick = handler;
+
+  if (isReject) {
+    panel.querySelector(".reason").focus();
+  } else {
+    submit.focus();
   }
 }
 
@@ -122,8 +159,9 @@ function render(reviews) {
     renderDiff(card.querySelector(".diff"), review.diff);
     const approveButton = card.querySelector(".approve");
     const rejectButton = card.querySelector(".reject");
-    approveButton.addEventListener("click", () => approve(review, approveButton));
-    rejectButton.addEventListener("click", () => reject(review, rejectButton));
+    approveButton.addEventListener("click", () => openPanel(card, review, "approve"));
+    rejectButton.addEventListener("click", () => openPanel(card, review, "reject"));
+    card.querySelector(".confirm-cancel").addEventListener("click", () => closePanels());
     list.append(card);
   }
 }
@@ -135,14 +173,14 @@ async function reload() {
 async function load() {
   if (busy) return;
   busy = true;
-  refresh.disabled = true;
+  setButtonsDisabled(true);
   try {
     await reload();
   } catch (error) {
     showStatus(errorText(error), "error");
   } finally {
     busy = false;
-    refresh.disabled = false;
+    setButtonsDisabled(false);
   }
 }
 

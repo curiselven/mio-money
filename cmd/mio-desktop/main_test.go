@@ -26,3 +26,15 @@ func TestEmbeddedAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestAppJSUsesNoNativeDialogs(t *testing.T) {
+	body, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"confirm(", "prompt(", "alert("} {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("app.js must not use %q", forbidden)
+		}
+	}
+}
