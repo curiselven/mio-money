@@ -41,6 +41,17 @@
         <button class="approve" type="button">确认生效</button>
         <button class="reject secondary" type="button">丢弃</button>
       </div>
+      <div class="confirm-panel" hidden>
+        <p class="confirm-text"></p>
+        <label class="reason-field" hidden>
+          <span>丢弃原因（可选）</span>
+          <textarea class="reason" maxlength="500" placeholder="可选：丢弃原因"></textarea>
+        </label>
+        <div class="confirm-actions">
+          <button class="confirm-submit" type="button">确认</button>
+          <button class="confirm-cancel secondary" type="button">取消</button>
+        </div>
+      </div>
     </article>
   </template>
 
