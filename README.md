@@ -41,10 +41,12 @@ go build -o bin/mio ./cmd/mio
 
 ```sh
 MIO_HTTP_TOKEN='至少 24 个字符的随机 token' go run ./cmd/mio --http \
-  --addr 0.0.0.0:7420 --allow '192.168.1.0/24'
+  --addr 0.0.0.0:7420 --allow '192.168.1.0/24' --session-idle 30m
 ```
 
 `--addr` 默认 `127.0.0.1:7420`，`--allow` 默认只允许回环地址 `127.0.0.1/32,::1/128`。要从其他机器访问，需同时监听非回环地址并把对方网段加入 `--allow`。每个请求都要带 `Authorization: Bearer <token>`；来源 IP 只取 TCP 对端地址，不信任 `X-Forwarded-For`。token 从环境变量 `MIO_HTTP_TOKEN` 读取，为空或短于 24 个字符时拒绝启动。
+
+`--session-idle` 默认 `30m`，必须大于 0。会话闲置超过该时长后自动过期，客户端下次请求会重新握手。
 
 MCP 客户端配置示例：
 

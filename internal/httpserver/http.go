@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -17,9 +18,15 @@ const MinTokenLength = 24
 type Config struct {
 	Token        string
 	AllowedCIDRs []string
+	SessionIdle  time.Duration
 }
 
-func NewHandler(server *sdk.Server, cfg Config) (http.Handler, error) {
+func (c Config) Validate() error {
+	_, err := prepare(c)
+	return err
+}
+
+func prepare(cfg Config) ([]netip.Prefix, error) {
 	allowed, err := parseAllowed(cfg.AllowedCIDRs)
 	if err != nil {
 		return nil, err
@@ -27,10 +34,21 @@ func NewHandler(server *sdk.Server, cfg Config) (http.Handler, error) {
 	if len(cfg.Token) < MinTokenLength {
 		return nil, fmt.Errorf("MIO_HTTP_TOKEN must be at least %d characters", MinTokenLength)
 	}
+	if cfg.SessionIdle <= 0 {
+		return nil, errors.New("--session-idle must be > 0")
+	}
+	return allowed, nil
+}
+
+func NewHandler(server *sdk.Server, cfg Config) (http.Handler, error) {
+	allowed, err := prepare(cfg)
+	if err != nil {
+		return nil, err
+	}
 
 	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server {
 		return server
-	}, nil)
+	}, &sdk.StreamableHTTPOptions{SessionTimeout: cfg.SessionIdle})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !remoteAllowed(r.RemoteAddr, allowed) {
 			http.Error(w, "forbidden", http.StatusForbidden)
