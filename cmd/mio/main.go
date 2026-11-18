@@ -27,10 +27,21 @@ func main() {
 	httpMode := flag.Bool("http", false, "serve MCP over Streamable HTTP instead of stdio")
 	addr := flag.String("addr", "127.0.0.1:7420", "HTTP listen address")
 	allow := flag.String("allow", "127.0.0.1/32,::1/128", "comma-separated CIDRs allowed to connect")
+	sessionIdle := flag.Duration("session-idle", 30*time.Minute, "expire idle HTTP MCP sessions after this duration")
 	flag.Parse()
 
 	if *maxChange < 0 {
 		log.Fatal("--max-change must be >= 0")
+	}
+	httpCfg := httpserver.Config{
+		Token:        os.Getenv("MIO_HTTP_TOKEN"),
+		AllowedCIDRs: strings.Split(*allow, ","),
+		SessionIdle:  *sessionIdle,
+	}
+	if *httpMode {
+		if err := httpCfg.Validate(); err != nil {
+			log.Fatalf("http server: %v", err)
+		}
 	}
 	st, err := store.Open(*dbPath)
 	if err != nil {
@@ -41,10 +52,7 @@ func main() {
 	svc := domain.NewService(st, *maxChange/100)
 	server := mioserver.NewServer(svc)
 	if *httpMode {
-		handler, err := httpserver.NewHandler(server, httpserver.Config{
-			Token:        os.Getenv("MIO_HTTP_TOKEN"),
-			AllowedCIDRs: strings.Split(*allow, ","),
-		})
+		handler, err := httpserver.NewHandler(server, httpCfg)
 		if err != nil {
 			log.Fatalf("http server: %v", err)
 		}
