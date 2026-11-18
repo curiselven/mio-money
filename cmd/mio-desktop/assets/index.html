@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mio · 待确认</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Mio Money</p>
+      <h1>待确认快照</h1>
+      <p class="subtitle">被异常规则拦下的记录，确认生效后才会写入正式数据。</p>
+    </div>
+    <button id="refresh" class="secondary" type="button">刷新</button>
+  </header>
+
+  <div id="status" class="status" role="status" hidden></div>
+  <main id="list" class="list"></main>
+  <div id="empty" class="empty" hidden>没有需要你确认的快照</div>
+
+  <template id="card">
+    <article class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="account"></h2>
+          <p class="meta"></p>
+        </div>
+        <span class="badge">需要确认</span>
+      </div>
+      <section>
+        <h3>命中规则</h3>
+        <ul class="anomalies"></ul>
+      </section>
+      <section>
+        <h3>与上次对比</h3>
+        <ul class="diff"></ul>
+      </section>
+      <div class="actions">
+        <button class="approve" type="button">确认生效</button>
+        <button class="reject secondary" type="button">丢弃</button>
+      </div>
+    </article>
+  </template>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
