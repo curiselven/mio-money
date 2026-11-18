@@ -64,3 +64,14 @@ MCP 客户端配置示例：
 ```
 
 日志只写 stderr，不记录 token。`launchd` 开机自启留作后续步骤。
+
+## 桌面端
+
+Agent 提交的快照命中异常规则时，`confirm_snapshot` 会被拒绝，需要在这里人工确认：
+
+```sh
+go run ./cmd/mio-desktop --db /tmp/mio.db
+go build -o bin/mio-desktop ./cmd/mio-desktop
+```
+
+`--db` 默认与 MCP 使用同一个数据库，`--max-change` 默认 20%。窗口只列出被异常规则拦下的待确认快照，可查看与上次的差异后「确认生效」或「丢弃」。桌面端放行会写 `confirm_override` 审计记录，之后仍可用 `undo_snapshot` 撤回。

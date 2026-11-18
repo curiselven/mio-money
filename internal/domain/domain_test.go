@@ -13,13 +13,19 @@ import (
 
 func newTestService(t *testing.T) *domain.Service {
 	t.Helper()
+	svc, _ := newTestServiceAndStore(t)
+	return svc
+}
+
+func newTestServiceAndStore(t *testing.T) (*domain.Service, *store.Store) {
+	t.Helper()
 	name := strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())
 	st, err := store.Open(fmt.Sprintf("file:domain_%s?mode=memory&cache=shared", name))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
 	t.Cleanup(func() { st.Close() })
-	return domain.NewService(st, 0.2)
+	return domain.NewService(st, 0.2), st
 }
 
 func int64p(v int64) *int64 { return &v }
@@ -158,6 +164,40 @@ func TestAnomalyRules(t *testing.T) {
 	})
 }
 
+func TestStructuredAnomalyCodes(t *testing.T) {
+	account := &domain.Account{Currency: "CNY"}
+	prev := &domain.Snapshot{Currency: "CNY", CashCents: int64p(1_000),
+		Items: []domain.Item{
+			{Name: "A", Code: "A", Quantity: "1", MarketValueCents: 100_000},
+			{Name: "C", Code: "C", Quantity: "1", MarketValueCents: 5_000},
+		}}
+	next := &domain.Snapshot{Currency: "USD", Items: []domain.Item{
+		{Name: "A", Code: "A", Quantity: "1", MarketValueCents: 200_000},
+		{Name: "B", Code: "B", Quantity: "-1", MarketValueCents: -1},
+	}}
+	anomalies := domain.StructuredAnomalies(prev, next, account, 0.2)
+	codes := map[domain.AnomalyCode]bool{}
+	for _, anomaly := range anomalies {
+		codes[anomaly.Code] = true
+		if anomaly.Message == "" {
+			t.Fatalf("empty message for %+v", anomaly)
+		}
+	}
+	for _, code := range []domain.AnomalyCode{
+		domain.AnomalyTotalChange,
+		domain.AnomalyItemDisappeared,
+		domain.AnomalyNegative,
+		domain.AnomalyCurrencyMismatch,
+	} {
+		if !codes[code] {
+			t.Fatalf("missing code %q in %+v", code, anomalies)
+		}
+	}
+	if !strings.Contains(strings.Join(domain.Anomalies(prev, next, account, 0.2), "|"), "超过阈值 20.0%") {
+		t.Fatal("string anomalies should keep the configured threshold")
+	}
+}
+
 func TestSubmitConfirmUndo(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
@@ -234,6 +274,141 @@ func TestSubmitConfirmUndo(t *testing.T) {
 	}
 	if _, err := svc.Undo(ctx, account.ID); err == nil {
 		t.Fatalf("undo with nothing left should fail")
+	}
+}
+
+func TestPendingReviewListsOnlyAnomalies(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-01", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例基金", Code: "000001", Quantity: "100", MarketValueCents: 100_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Confirm(ctx, first.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	normal, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-02", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例基金", Code: "000001", Quantity: "100", MarketValueCents: 110_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normal.Anomalies) != 0 {
+		t.Fatalf("normal pending should have no anomaly: %v", normal.Anomalies)
+	}
+	anomalous, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-03", Source: domain.SourceMCP,
+		Items: []domain.Item{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reviews, err := svc.PendingReview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 {
+		t.Fatalf("reviews = %+v", reviews)
+	}
+	review := reviews[0]
+	if review.SnapshotID != anomalous.SnapshotID || review.AccountName != "示例账户" ||
+		review.AsOf != "2026-11-03" || review.Source != domain.SourceMCP {
+		t.Fatalf("review = %+v", review)
+	}
+	if review.Diff.TotalBeforeCents != 100_000 || review.Diff.TotalAfterCents != 0 ||
+		len(review.Diff.Removed) != 1 || review.Diff.Removed[0].Code != "000001" {
+		t.Fatalf("diff = %+v", review.Diff)
+	}
+	codes := map[domain.AnomalyCode]bool{}
+	for _, anomaly := range review.Anomalies {
+		codes[anomaly.Code] = true
+	}
+	if !codes[domain.AnomalyTotalChange] || !codes[domain.AnomalyItemDisappeared] {
+		t.Fatalf("anomalies = %+v", review.Anomalies)
+	}
+	snapshots, err := svc.Pending(ctx)
+	if err != nil || len(snapshots) != 2 {
+		t.Fatalf("pending = %+v, err=%v", snapshots, err)
+	}
+}
+
+func TestApproveAnomalousAuditsAndCanUndo(t *testing.T) {
+	ctx := context.Background()
+	svc, st := newTestServiceAndStore(t)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountStock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-01", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例股票", Code: "600000", MarketValueCents: 100_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Confirm(ctx, first.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-02", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例股票", Code: "600000", MarketValueCents: 150_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Confirm(ctx, second.SnapshotID); !errors.Is(err, domain.ErrAnomaly) {
+		t.Fatalf("confirm error = %v, want ErrAnomaly", err)
+	}
+
+	approved, err := svc.ApproveAnomalous(ctx, second.SnapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved.Status != domain.StatusConfirmed {
+		t.Fatalf("approved = %+v", approved)
+	}
+	holdings, err := svc.Holdings(ctx, account.ID)
+	if err != nil || len(holdings) != 1 || holdings[0].TotalCents != 150_000 {
+		t.Fatalf("holdings = %+v, err=%v", holdings, err)
+	}
+
+	audits, err := st.ListAudit(ctx, second.SnapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var override *domain.AuditEntry
+	for i := range audits {
+		if audits[i].Action == "confirm_override" {
+			override = &audits[i]
+		}
+	}
+	if override == nil || !strings.Contains(override.Detail, "桌面端放行") ||
+		!strings.Contains(override.Detail, "总市值") || !strings.Contains(override.Detail, "20.0%") {
+		t.Fatalf("audits = %+v", audits)
+	}
+
+	undone, err := svc.Undo(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if undone.ID != second.SnapshotID || undone.Status != domain.StatusUndone {
+		t.Fatalf("undone = %+v", undone)
+	}
+	holdings, err = svc.Holdings(ctx, account.ID)
+	if err != nil || len(holdings) != 1 || holdings[0].TotalCents != 100_000 {
+		t.Fatalf("holdings after undo = %+v, err=%v", holdings, err)
+	}
+	if _, err := svc.ApproveAnomalous(ctx, second.SnapshotID); err == nil {
+		t.Fatal("approving a non-pending snapshot should fail")
 	}
 }
 

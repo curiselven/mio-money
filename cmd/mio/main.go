@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,7 +21,7 @@ import (
 )
 
 func main() {
-	dbPath := flag.String("db", defaultDBPath(), "SQLite database path")
+	dbPath := flag.String("db", store.DefaultPath(), "SQLite database path")
 	maxChange := flag.Float64("max-change", 20, "reject confirm when an account total moves more than this percentage")
 	httpMode := flag.Bool("http", false, "serve MCP over Streamable HTTP instead of stdio")
 	addr := flag.String("addr", "127.0.0.1:7420", "HTTP listen address")
@@ -93,13 +92,4 @@ func runHTTP(ctx context.Context, addr string, handler http.Handler) error {
 		}
 		return nil
 	}
-}
-
-func defaultDBPath() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "MioMoney", "mio.db")
 }

@@ -21,6 +21,16 @@ var migrations embed.FS
 
 var ErrNotFound = errors.New("not found")
 
+// DefaultPath returns the shared default SQLite database location.
+func DefaultPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config")
+	}
+	return filepath.Join(dir, "MioMoney", "mio.db")
+}
+
 type Store struct {
 	db *sql.DB
 }

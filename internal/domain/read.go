@@ -219,3 +219,51 @@ func (s *Service) History(ctx context.Context, accountID, from, to string) (*His
 func (s *Service) Pending(ctx context.Context) ([]*Snapshot, error) {
 	return s.repo.ListPending(ctx)
 }
+
+type PendingReview struct {
+	SnapshotID  string    `json:"snapshot_id"`
+	AccountID   string    `json:"account_id"`
+	AccountName string    `json:"account_name"`
+	AsOf        string    `json:"as_of"`
+	Source      Source    `json:"source"`
+	Diff        Diff      `json:"diff"`
+	Anomalies   []Anomaly `json:"anomalies"`
+}
+
+// PendingReview lists pending snapshots that currently violate an anomaly rule.
+func (s *Service) PendingReview(ctx context.Context) ([]PendingReview, error) {
+	accounts, err := s.repo.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]Account{}
+	for _, account := range accounts {
+		byID[account.ID] = account
+	}
+	pending, err := s.repo.ListPending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []PendingReview{}
+	for _, snapshot := range pending {
+		account := byID[snapshot.AccountID]
+		prev, err := s.repo.LastConfirmedBefore(ctx, snapshot.AccountID, snapshot.AsOf)
+		if err != nil {
+			return nil, err
+		}
+		anomalies := StructuredAnomalies(prev, snapshot, &account, s.threshold)
+		if len(anomalies) == 0 {
+			continue
+		}
+		out = append(out, PendingReview{
+			SnapshotID:  snapshot.ID,
+			AccountID:   snapshot.AccountID,
+			AccountName: account.Name,
+			AsOf:        snapshot.AsOf,
+			Source:      snapshot.Source,
+			Diff:        ComputeDiff(prev, snapshot),
+			Anomalies:   anomalies,
+		})
+	}
+	return out, nil
+}

@@ -268,6 +268,27 @@ func (s *Store) AddAudit(ctx context.Context, e domain.AuditEntry) error {
 	return err
 }
 
+func (s *Store) ListAudit(ctx context.Context, snapshotID string) ([]domain.AuditEntry, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, action, account_id, snapshot_id, detail, created_at
+		FROM audit_log WHERE snapshot_id = ? ORDER BY id`, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.AuditEntry{}
+	for rows.Next() {
+		var entry domain.AuditEntry
+		var created string
+		if err := rows.Scan(&entry.ID, &entry.Action, &entry.AccountID, &entry.SnapshotID,
+			&entry.Detail, &created); err != nil {
+			return nil, err
+		}
+		entry.CreatedAt = parseTime(created)
+		out = append(out, entry)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) loadItems(ctx context.Context, snapshotIDs []string) (map[string][]domain.Item, error) {
 	out := map[string][]domain.Item{}
 	if len(snapshotIDs) == 0 {

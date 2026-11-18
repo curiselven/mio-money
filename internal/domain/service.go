@@ -136,6 +136,16 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 
 // Confirm makes a pending snapshot live. Any anomaly blocks it.
 func (s *Service) Confirm(ctx context.Context, snapshotID string) (*Snapshot, error) {
+	return s.confirm(ctx, snapshotID, false)
+}
+
+// ApproveAnomalous makes a pending snapshot live from the desktop UI, bypassing
+// anomaly rules but keeping every other Confirm check.
+func (s *Service) ApproveAnomalous(ctx context.Context, snapshotID string) (*Snapshot, error) {
+	return s.confirm(ctx, snapshotID, true)
+}
+
+func (s *Service) confirm(ctx context.Context, snapshotID string, allowAnomalies bool) (*Snapshot, error) {
 	snapshot, err := s.repo.GetSnapshot(ctx, snapshotID)
 	if err != nil {
 		return nil, err
@@ -151,8 +161,9 @@ func (s *Service) Confirm(ctx context.Context, snapshotID string) (*Snapshot, er
 	if err != nil {
 		return nil, err
 	}
-	if anomalies := Anomalies(prev, snapshot, account, s.threshold); len(anomalies) > 0 {
-		return nil, fmt.Errorf("%w: %s", ErrAnomaly, strings.Join(anomalies, "；"))
+	anomalies := StructuredAnomalies(prev, snapshot, account, s.threshold)
+	if len(anomalies) > 0 && !allowAnomalies {
+		return nil, fmt.Errorf("%w: %s", ErrAnomaly, strings.Join(anomalyMessages(anomalies), "；"))
 	}
 	now := s.now().UTC()
 	if err := s.repo.UpdateSnapshotStatus(ctx, snapshot.ID, StatusConfirmed, &now); err != nil {
@@ -160,7 +171,13 @@ func (s *Service) Confirm(ctx context.Context, snapshotID string) (*Snapshot, er
 	}
 	snapshot.Status = StatusConfirmed
 	snapshot.ConfirmedAt = &now
-	if err := s.audit(ctx, "confirm", snapshot, ""); err != nil {
+	action := "confirm"
+	detail := ""
+	if allowAnomalies && len(anomalies) > 0 {
+		action = "confirm_override"
+		detail = "桌面端放行：" + strings.Join(anomalyMessages(anomalies), "；")
+	}
+	if err := s.audit(ctx, action, snapshot, detail); err != nil {
 		return nil, err
 	}
 	return snapshot, nil

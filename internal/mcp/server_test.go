@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -49,6 +50,12 @@ func TestToolsRoundTrip(t *testing.T) {
 	for _, name := range want {
 		if !names[name] {
 			t.Fatalf("missing tool %s", name)
+		}
+	}
+	for _, name := range tools.Tools {
+		lower := strings.ToLower(name.Name)
+		if strings.Contains(lower, "approve") || strings.Contains(lower, "override") || strings.Contains(lower, "force") {
+			t.Fatalf("desktop override tool must not be exposed over MCP: %s", name.Name)
 		}
 	}
 
