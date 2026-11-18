@@ -32,3 +32,5 @@ go build -o bin/mio ./cmd/mio
 ```
 
 接口定义见 `docs/mcp-v1.md`，选型理由见 `docs/adr/0001-tech-stack.md`。
+
+想直接看 MCP 在 stdin/stdout 上来回的 JSON，运行 `go run ./examples/stdio-demo`：它会在临时目录构建服务、建临时库，依次演示建账户、提交快照、确认和读取净资产，结束后清理。
