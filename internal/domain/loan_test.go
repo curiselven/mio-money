@@ -223,7 +223,7 @@ func TestSetLoanTermsAndSync(t *testing.T) {
 
 	// Sync to just after the third payment date. Threshold is 0, which must not
 	// block loan snapshots.
-	result, err := svc.SyncLoans(ctx, "2026-03-25")
+	result, err := svc.SyncLoans(ctx, "2026-03-25", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestSetLoanTermsAndSync(t *testing.T) {
 		t.Fatalf("audit = %+v, err = %v", audit, err)
 	}
 
-	again, err := svc.SyncLoans(ctx, "2026-03-25")
+	again, err := svc.SyncLoans(ctx, "2026-03-25", "")
 	if err != nil {
 		t.Fatal(err)
 	}

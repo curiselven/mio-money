@@ -52,7 +52,7 @@ func main() {
 
 	svc := domain.NewService(st, *maxChange/100)
 	if *loanSync {
-		result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02"))
+		result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02"), "")
 		if err != nil {
 			log.Fatalf("loan sync: %v", err)
 		}
@@ -63,7 +63,7 @@ func main() {
 		}
 		return
 	}
-	if result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02")); err != nil {
+	if result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02"), ""); err != nil {
 		log.Printf("loan sync: %v", err)
 	} else if result.Created > 0 {
 		log.Printf("loan sync: wrote %d snapshots", result.Created)

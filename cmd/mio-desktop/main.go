@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"log"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -29,11 +31,17 @@ func main() {
 	defer st.Close()
 
 	svc := domain.NewService(st, *maxChange/100)
+	if result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02"), ""); err != nil {
+		log.Printf("loan sync: %v", err)
+	} else if result.Created > 0 {
+		log.Printf("loan sync: wrote %d snapshots", result.Created)
+	}
 	pending := NewPendingService(svc)
 	overview := NewOverviewService(svc)
+	loans := NewLoanService(svc)
 	app := application.New(application.Options{
 		Name:     "Mio",
-		Services: []application.Service{application.NewService(pending), application.NewService(overview)},
+		Services: []application.Service{application.NewService(pending), application.NewService(overview), application.NewService(loans)},
 		Assets: application.AssetOptions{
 			Handler:        application.AssetFileServerFS(assets),
 			DisableLogging: true,
