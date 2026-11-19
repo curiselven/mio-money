@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 140" width="560" height="140" role="img" aria-labelledby="logoTitle logoDesc">
+  <title id="logoTitle">Mio Money</title>
+  <desc id="logoDesc">A warm clay coin with an M mark, the Mio Money wordmark and a small rising line.</desc>
+  <defs>
+    <linearGradient id="clay" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E08A5F"/>
+      <stop offset="1" stop-color="#C8754B"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="559" height="139" rx="26" fill="#FFFBF5" stroke="#EFE3D3"/>
+  <circle cx="72" cy="70" r="40" fill="url(#clay)"/>
+  <path d="M50 88V54h8l14 18 14-18h8v34h-8V67L72 84 58 67v21z" fill="#FFF7EC"/>
+  <text x="150" y="76" font-family="-apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Segoe UI', sans-serif" font-size="46" font-weight="700" letter-spacing="-1.5" fill="#2E251C">Mio</text>
+  <text x="238" y="76" font-family="-apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Segoe UI', sans-serif" font-size="46" font-weight="600" letter-spacing="-1" fill="#C8754B">Money</text>
+  <text x="152" y="103" font-family="-apple-system, 'PingFang SC', 'Noto Sans CJK SC', 'Segoe UI', sans-serif" font-size="12" font-weight="600" letter-spacing="3.6" fill="#8D7B66">MONEY IN ONE</text>
+  <g opacity=".55">
+    <path d="M430 98 460 84 486 90 514 58 538 50" fill="none" stroke="#C98A2B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="538" cy="50" r="3.5" fill="#C98A2B"/>
+  </g>
+</svg>
