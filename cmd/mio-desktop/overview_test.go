@@ -194,6 +194,9 @@ func TestOverviewShowsLoanBriefing(t *testing.T) {
 		loan.RemainingInterestCents != expected.RemainingInterestCents {
 		t.Fatalf("loan = %+v, expected = %+v", loan, expected)
 	}
+	if loan.Terms.AnchorDate != "2026-01-01" || loan.Terms.AnnualRate != "3.10" || loan.Terms.PaymentDay != 20 {
+		t.Fatalf("terms for prefilling = %+v", loan.Terms)
+	}
 	if expected.Next != nil && (loan.NextDate != expected.Next.Date || loan.NextPaymentCents != expected.Next.PaymentCents) {
 		t.Fatalf("loan = %+v, expected = %+v", loan, expected)
 	}

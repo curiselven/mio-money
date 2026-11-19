@@ -13,6 +13,8 @@ type SetLoanTermsInput struct {
 	Method               LoanMethod `json:"method"`
 	PaymentDay           int        `json:"payment_day"`
 	RemainingPeriods     int        `json:"remaining_periods"`
+	// Origin records where the change came from ("mcp", "desktop"); blank is mcp.
+	Origin string `json:"-"`
 }
 
 // SetLoanTerms stores terms for a liability account. When the anchor date has
@@ -48,6 +50,19 @@ func (s *Service) SetLoanTerms(ctx context.Context, in SetLoanTermsInput) (*Loan
 		terms.CreatedAt = existing.CreatedAt
 	}
 	if err := s.repo.UpsertLoan(ctx, terms); err != nil {
+		return nil, err
+	}
+	origin := in.Origin
+	if origin == "" {
+		origin = "mcp"
+	}
+	if err := s.repo.AddAudit(ctx, AuditEntry{
+		Action:    "loan_terms",
+		AccountID: account.ID,
+		Detail: fmt.Sprintf("来源 %s：%s，年利率 %s%%，%d 期，扣款日 %d",
+			origin, terms.Method, terms.AnnualRate, terms.RemainingPeriods, terms.PaymentDay),
+		CreatedAt: now,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -121,10 +136,11 @@ func (s *Service) Loan(ctx context.Context, accountID string, includeSchedule bo
 }
 
 type LoanBriefing struct {
-	RemainingPeriods       int    `json:"remaining_periods"`
-	NextDate               string `json:"next_date,omitempty"`
-	NextPaymentCents       int64  `json:"next_payment_cents,omitempty"`
-	RemainingInterestCents int64  `json:"remaining_interest_cents"`
+	RemainingPeriods       int       `json:"remaining_periods"`
+	NextDate               string    `json:"next_date,omitempty"`
+	NextPaymentCents       int64     `json:"next_payment_cents,omitempty"`
+	RemainingInterestCents int64     `json:"remaining_interest_cents"`
+	Terms                  LoanTerms `json:"terms"`
 }
 
 // LoanBriefings returns the desktop one-liner data keyed by account id.
@@ -142,6 +158,7 @@ func (s *Service) LoanBriefings(ctx context.Context) (map[string]LoanBriefing, e
 		briefing := LoanBriefing{
 			RemainingPeriods:       calc.RemainingPeriods,
 			RemainingInterestCents: calc.RemainingInterestCents,
+			Terms:                  terms,
 		}
 		if calc.Next != nil {
 			briefing.NextDate = calc.Next.Date
@@ -169,9 +186,10 @@ type LoanSyncResult struct {
 }
 
 // SyncLoans writes one confirmed snapshot per payment date elapsed since the
-// last confirmed snapshot (or the anchor date), up to today. Re-running is a
-// no-op because an existing snapshot on the same as_of is skipped.
-func (s *Service) SyncLoans(ctx context.Context, today string) (*LoanSyncResult, error) {
+// last confirmed snapshot (or the anchor date), up to today, for every loan or
+// just accountID when it is non-empty. Re-running is a no-op because an
+// existing snapshot on the same as_of is skipped.
+func (s *Service) SyncLoans(ctx context.Context, today, accountID string) (*LoanSyncResult, error) {
 	if err := validDate(today); err != nil {
 		return nil, fmt.Errorf("today: %w", err)
 	}
@@ -191,6 +209,9 @@ func (s *Service) SyncLoans(ctx context.Context, today string) (*LoanSyncResult,
 		currencies[a.ID] = a.Currency
 	}
 	for _, terms := range loans {
+		if accountID != "" && terms.AccountID != accountID {
+			continue
+		}
 		periods, err := LoanSchedule(terms)
 		if err != nil {
 			return nil, fmt.Errorf("account %s: %w", terms.AccountID, err)

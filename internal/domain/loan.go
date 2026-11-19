@@ -54,6 +54,15 @@ type LoanCalculation struct {
 	RemainingInterestCents int64       `json:"remaining_interest_cents"`
 }
 
+// LoanPreview is the desktop form preview: no storage, just the schedule.
+type LoanPreview struct {
+	PaymentCents           int64  `json:"payment_cents"`
+	LastPaymentCents       int64  `json:"last_payment_cents"`
+	NextDate               string `json:"next_date"`
+	LastDate               string `json:"last_date"`
+	RemainingInterestCents int64  `json:"remaining_interest_cents"`
+}
+
 var loanRatePattern = regexp.MustCompile(`^\d+(\.\d+)?$`)
 
 // loanMonthlyRate parses "3.10" (annual percent) into 31/12000.
@@ -234,4 +243,26 @@ func LoanAt(t LoanTerms, asOf string) (*LoanCalculation, error) {
 		out.Next = &next
 	}
 	return out, nil
+}
+
+// PreviewLoan validates the terms and returns the numbers shown in the form.
+// PaymentCents is the equal-installment payment, or the first payment for
+// equal principal (LastPaymentCents carries the final one).
+func PreviewLoan(t LoanTerms) (*LoanPreview, error) {
+	periods, err := LoanSchedule(t)
+	if err != nil {
+		return nil, err
+	}
+	var interest int64
+	for _, p := range periods {
+		interest += p.InterestCents
+	}
+	first, last := periods[0], periods[len(periods)-1]
+	return &LoanPreview{
+		PaymentCents:           first.PaymentCents,
+		LastPaymentCents:       last.PaymentCents,
+		NextDate:               first.Date,
+		LastDate:               last.Date,
+		RemainingInterestCents: interest,
+	}, nil
 }
