@@ -137,6 +137,11 @@ func (s *Service) SetLoanHistory(ctx context.Context, in SetLoanHistoryInput) (*
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}
+	for i := range history.RateChanges {
+		if history.RateChanges[i].PrincipalRule == "" {
+			history.RateChanges[i].PrincipalRule = PrincipalNewSchedule
+		}
+	}
 	if _, err := LoanHistorySchedule(*history); err != nil {
 		return nil, err
 	}

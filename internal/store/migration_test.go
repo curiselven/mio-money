@@ -132,13 +132,13 @@ func TestLoanHistoryMigrationKeepsAnchorLoan(t *testing.T) {
 	if history, err := st.GetLoanHistory(ctx, "acc_old"); err != nil || history != nil {
 		t.Fatalf("history = %+v, err = %v", history, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 4 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 5 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
 
 // TestDisbursementMigrationKeepsHistory builds a 0003 database with a history
-// plan, then opens it so 0004 only adds the nullable column.
+// plan, then opens it so 0004 adds the column and 0005 backfills principal_rule.
 func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v3.db")
@@ -173,7 +173,7 @@ func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 		`INSERT INTO loan_histories(account_id, original_principal_cents, first_payment_date, total_periods, method,
 			initial_annual_rate, rate_changes, prepayments, created_at, updated_at)
 		 VALUES ('acc_old', 100000000, '2026-01-20', 360, 'equal_installment', '4.90',
-			'[{"date":"2026-01-01","annual_rate":"4.70"}]', '[]', '` + now + `', '` + now + `')`,
+			'[{"date":"2026-01-01","annual_rate":"4.70"},{"date":"2026-06-01","annual_rate":"4.50","principal_rule":"old_schedule"}]', '[]', '` + now + `', '` + now + `')`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatal(err)
@@ -189,8 +189,26 @@ func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 	}
 	defer st.Close()
 	history, err := st.GetLoanHistory(ctx, "acc_old")
-	if err != nil || history == nil || history.TotalPeriods != 360 || len(history.RateChanges) != 1 {
+	if err != nil || history == nil || history.TotalPeriods != 360 || len(history.RateChanges) != 2 {
 		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+	// 0005 backfills the missing rule and keeps an explicit one.
+	if history.RateChanges[0].PrincipalRule != domain.PrincipalNewSchedule ||
+		history.RateChanges[1].PrincipalRule != domain.PrincipalOldSchedule {
+		t.Fatalf("rules = %+v", history.RateChanges)
+	}
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	var storedRule string
+	if err := raw.QueryRow(`SELECT json_extract(rate_changes, '$[0].principal_rule')
+		FROM loan_histories WHERE account_id = 'acc_old'`).Scan(&storedRule); err != nil {
+		t.Fatal(err)
+	}
+	if storedRule != "new_schedule" {
+		t.Fatalf("migration stored rule = %q", storedRule)
 	}
 	if history.DisbursementDate != "" {
 		t.Fatalf("disbursement = %q", history.DisbursementDate)
@@ -204,7 +222,7 @@ func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 	if err != nil || updated == nil || updated.DisbursementDate != "2025-12-15" {
 		t.Fatalf("updated = %+v, err = %v", updated, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 4 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 5 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }

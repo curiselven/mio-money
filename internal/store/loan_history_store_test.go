@@ -33,7 +33,7 @@ func TestLoanHistoryRoundTrip(t *testing.T) {
 		Method:                 domain.LoanEqualInstallment,
 		InitialAnnualRate:      "4.90",
 		RateChanges: []domain.LoanRateChange{
-			{Date: "2026-01-01", AnnualRate: "4.70"},
+			{Date: "2026-01-01", AnnualRate: "4.70", PrincipalRule: domain.PrincipalFixedPayment},
 			{Date: "2027-06-01", AnnualRate: "3.20"},
 		},
 		Prepayments: []domain.LoanPrepayment{
@@ -55,6 +55,9 @@ func TestLoanHistoryRoundTrip(t *testing.T) {
 	}
 	if got.RateChanges[1].AnnualRate != "3.20" || got.Prepayments[0].Mode != domain.PrepayShortenPeriods {
 		t.Fatalf("history = %+v", got)
+	}
+	if got.RateChanges[0].PrincipalRule != domain.PrincipalFixedPayment || got.RateChanges[1].PrincipalRule != "" {
+		t.Fatalf("rules = %+v", got.RateChanges)
 	}
 	list, err := st.ListLoanHistories(ctx)
 	if err != nil || len(list) != 1 {

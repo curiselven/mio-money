@@ -523,12 +523,13 @@ button.loan-setup:hover {
 
 .rate-change-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
   gap: 8px;
   align-items: center;
 }
 
-.rate-change-row input {
+.rate-change-row input,
+.rate-change-row select {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid #d7dde5;

@@ -9,8 +9,30 @@ import (
 )
 
 type LoanRateChange struct {
-	Date       string `json:"date"`
-	AnnualRate string `json:"annual_rate"`
+	Date          string        `json:"date"`
+	AnnualRate    string        `json:"annual_rate"`
+	PrincipalRule PrincipalRule `json:"principal_rule,omitempty"`
+}
+
+// PrincipalRule selects how the principal is split in the period where the
+// rate change becomes effective (equal installment only).
+type PrincipalRule string
+
+const (
+	PrincipalNewSchedule  PrincipalRule = "new_schedule"
+	PrincipalFixedPayment PrincipalRule = "fixed_payment"
+	PrincipalOldSchedule  PrincipalRule = "old_schedule"
+)
+
+func (r PrincipalRule) Valid() bool {
+	return r == PrincipalNewSchedule || r == PrincipalFixedPayment || r == PrincipalOldSchedule
+}
+
+func (r PrincipalRule) orDefault() PrincipalRule {
+	if r == "" {
+		return PrincipalNewSchedule
+	}
+	return r
 }
 
 type PrepaymentMode string
@@ -88,6 +110,9 @@ func validateLoanHistory(h *LoanHistory) error {
 		if _, err := loanMonthlyRate(change.AnnualRate); err != nil {
 			return fmt.Errorf("rate_changes[%d].annual_rate: %w", i, err)
 		}
+		if change.PrincipalRule != "" && !change.PrincipalRule.Valid() {
+			return fmt.Errorf("rate_changes[%d].principal_rule %q must be new_schedule, fixed_payment or old_schedule", i, change.PrincipalRule)
+		}
 		if seen[change.Date] {
 			return fmt.Errorf("rate_changes[%d]: duplicate date %s", i, change.Date)
 		}
@@ -154,6 +179,20 @@ func historyRateAt(changes []LoanRateChange, initial, date string) string {
 		rate = change.AnnualRate
 	}
 	return rate
+}
+
+// latestPrincipalRule returns the rule of the change that supplies the rate for
+// the period ending on date. When several changes fall in one period, the last
+// one governs the principal.
+func latestPrincipalRule(changes []LoanRateChange, date string) PrincipalRule {
+	var rule PrincipalRule
+	for _, change := range changes {
+		if change.Date >= date {
+			break
+		}
+		rule = change.PrincipalRule
+	}
+	return rule.orDefault()
 }
 
 // historyFirstPeriodInterest uses the domestic actual/360 convention:
@@ -272,7 +311,12 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 	for k := 1; k <= total; k++ {
 		date := dates[k-1]
 		nextRate := historyRateAt(changes, h.InitialAnnualRate, date)
+		var transitionRule PrincipalRule
+		var previousMonthly *big.Rat
+		var previousPayment int64
 		if nextRate != rate {
+			previousMonthly = monthly
+			previousPayment = payment
 			rate = nextRate
 			monthly, err = loanMonthlyRate(rate)
 			if err != nil {
@@ -281,6 +325,7 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 			remaining := total - k + 1
 			if h.Method == LoanEqualInstallment {
 				payment = installmentPayment(balance, monthly, remaining)
+				transitionRule = latestPrincipalRule(changes, date)
 			} else {
 				base = balance / int64(remaining)
 			}
@@ -338,13 +383,28 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 			interest, rateSplit = historyPeriodInterest(balance, prevDate, date, h.InitialAnnualRate, changes, monthly)
 		}
 		var principal int64
-		if h.Method == LoanEqualInstallment {
+		switch {
+		case h.Method == LoanEqualPrincipal:
+			principal = base
+			if principal < 1 {
+				principal = 1
+			}
+		case transitionRule == PrincipalFixedPayment:
 			principal = payment - interest
 			if principal < 1 {
 				principal = 1
 			}
-		} else {
-			principal = base
+		case transitionRule == PrincipalOldSchedule:
+			principal = previousPayment - interestCents(balance, previousMonthly)
+			if principal < 1 {
+				principal = 1
+			}
+		default:
+			if transitionRule != "" {
+				principal = payment - interestCents(balance, monthly)
+			} else {
+				principal = payment - interest
+			}
 			if principal < 1 {
 				principal = 1
 			}
@@ -361,6 +421,7 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 			Date:           date,
 			AnnualRate:     rate,
 			RateSplit:      rateSplit,
+			PrincipalRule:  transitionRule,
 			PaymentCents:   principal + interest,
 			PrincipalCents: principal,
 			InterestCents:  interest,
