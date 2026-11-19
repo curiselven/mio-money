@@ -101,6 +101,7 @@ func (s *Service) SetLoanTerms(ctx context.Context, in SetLoanTermsInput) (*Loan
 type SetLoanHistoryInput struct {
 	AccountID              string           `json:"account_id"`
 	OriginalPrincipalCents int64            `json:"original_principal_cents"`
+	DisbursementDate       string           `json:"disbursement_date,omitempty"`
 	FirstPaymentDate       string           `json:"first_payment_date"`
 	TotalPeriods           int              `json:"total_periods"`
 	Method                 LoanMethod       `json:"method"`
@@ -126,6 +127,7 @@ func (s *Service) SetLoanHistory(ctx context.Context, in SetLoanHistoryInput) (*
 	history := &LoanHistory{
 		AccountID:              account.ID,
 		OriginalPrincipalCents: in.OriginalPrincipalCents,
+		DisbursementDate:       in.DisbursementDate,
 		FirstPaymentDate:       in.FirstPaymentDate,
 		TotalPeriods:           in.TotalPeriods,
 		Method:                 in.Method,
@@ -134,6 +136,11 @@ func (s *Service) SetLoanHistory(ctx context.Context, in SetLoanHistoryInput) (*
 		Prepayments:            in.Prepayments,
 		CreatedAt:              now,
 		UpdatedAt:              now,
+	}
+	for i := range history.RateChanges {
+		if history.RateChanges[i].PrincipalRule == "" {
+			history.RateChanges[i].PrincipalRule = PrincipalNewSchedule
+		}
 	}
 	if _, err := LoanHistorySchedule(*history); err != nil {
 		return nil, err
@@ -229,6 +236,11 @@ type LoanBriefing struct {
 	NextDate               string       `json:"next_date,omitempty"`
 	NextPaymentCents       int64        `json:"next_payment_cents,omitempty"`
 	RemainingInterestCents int64        `json:"remaining_interest_cents"`
+	PaidPeriods            int          `json:"paid_periods"`
+	PaidPrincipalCents     int64        `json:"paid_principal_cents"`
+	PaidInterestCents      int64        `json:"paid_interest_cents"`
+	PrepaidCents           int64        `json:"prepaid_cents"`
+	PaidTotalCents         int64        `json:"paid_total_cents"`
 	Terms                  LoanTerms    `json:"terms"`
 	History                *LoanHistory `json:"history,omitempty"`
 }
@@ -249,6 +261,11 @@ func (s *Service) LoanBriefings(ctx context.Context) (map[string]LoanBriefing, e
 			BalanceCents:           calc.BalanceCents,
 			RemainingPeriods:       calc.RemainingPeriods,
 			RemainingInterestCents: calc.RemainingInterestCents,
+			PaidPeriods:            calc.PaidPeriods,
+			PaidPrincipalCents:     calc.PaidPrincipalCents,
+			PaidInterestCents:      calc.PaidInterestCents,
+			PrepaidCents:           calc.PrepaidCents,
+			PaidTotalCents:         calc.PaidTotalCents,
 			Terms:                  terms,
 		}
 		if calc.Next != nil {
@@ -270,6 +287,11 @@ func (s *Service) LoanBriefings(ctx context.Context) (map[string]LoanBriefing, e
 			BalanceCents:           calc.BalanceCents,
 			RemainingPeriods:       calc.RemainingPeriods,
 			RemainingInterestCents: calc.RemainingInterestCents,
+			PaidPeriods:            calc.PaidPeriods,
+			PaidPrincipalCents:     calc.PaidPrincipalCents,
+			PaidInterestCents:      calc.PaidInterestCents,
+			PrepaidCents:           calc.PrepaidCents,
+			PaidTotalCents:         calc.PaidTotalCents,
 			History:                &history,
 		}
 		if calc.Next != nil {

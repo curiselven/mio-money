@@ -37,13 +37,15 @@ type LoanTerms struct {
 
 // LoanPeriod is one scheduled payment. BalanceCents is the balance after it.
 type LoanPeriod struct {
-	Number         int    `json:"period"`
-	Date           string `json:"date"`
-	AnnualRate     string `json:"annual_rate,omitempty"`
-	PaymentCents   int64  `json:"payment_cents"`
-	PrincipalCents int64  `json:"principal_cents"`
-	InterestCents  int64  `json:"interest_cents"`
-	BalanceCents   int64  `json:"balance_cents"`
+	Number         int           `json:"period"`
+	Date           string        `json:"date"`
+	AnnualRate     string        `json:"annual_rate,omitempty"`
+	RateSplit      bool          `json:"rate_split,omitempty"`
+	PrincipalRule  PrincipalRule `json:"principal_rule,omitempty"`
+	PaymentCents   int64         `json:"payment_cents"`
+	PrincipalCents int64         `json:"principal_cents"`
+	InterestCents  int64         `json:"interest_cents"`
+	BalanceCents   int64         `json:"balance_cents"`
 }
 
 // LoanCalculation is the loan state at one date. Next is nil once paid off.
@@ -51,6 +53,10 @@ type LoanCalculation struct {
 	AsOf                   string      `json:"as_of"`
 	BalanceCents           int64       `json:"balance_cents"`
 	PaidPeriods            int         `json:"paid_periods"`
+	PaidPrincipalCents     int64       `json:"paid_principal_cents"`
+	PaidInterestCents      int64       `json:"paid_interest_cents"`
+	PrepaidCents           int64       `json:"prepaid_cents"`
+	PaidTotalCents         int64       `json:"paid_total_cents"`
 	RemainingPeriods       int         `json:"remaining_periods"`
 	Next                   *LoanPeriod `json:"next_payment,omitempty"`
 	RemainingInterestCents int64       `json:"remaining_interest_cents"`
@@ -231,11 +237,11 @@ func LoanAt(t LoanTerms, asOf string) (*LoanCalculation, error) {
 	if err != nil {
 		return nil, err
 	}
-	return calculationAt(periods, asOf, t.AnchorPrincipalCents), nil
+	return calculationAt(periods, asOf, t.AnchorPrincipalCents, nil), nil
 }
 
 // calculationAt treats payment dates on or before asOf as already paid.
-func calculationAt(periods []LoanPeriod, asOf string, principal int64) *LoanCalculation {
+func calculationAt(periods []LoanPeriod, asOf string, principal int64, prepayments []LoanPrepayment) *LoanCalculation {
 	out := &LoanCalculation{AsOf: asOf, BalanceCents: principal, RemainingPeriods: len(periods)}
 	paid := 0
 	for _, p := range periods {
@@ -245,7 +251,15 @@ func calculationAt(periods []LoanPeriod, asOf string, principal int64) *LoanCalc
 		}
 		paid++
 		out.BalanceCents = p.BalanceCents
+		out.PaidPrincipalCents += p.PrincipalCents
+		out.PaidInterestCents += p.InterestCents
 	}
+	for _, prepayment := range prepayments {
+		if prepayment.Date <= asOf {
+			out.PrepaidCents += prepayment.AmountCents
+		}
+	}
+	out.PaidTotalCents = out.PaidPrincipalCents + out.PaidInterestCents + out.PrepaidCents
 	out.PaidPeriods = paid
 	out.RemainingPeriods -= paid
 	if paid < len(periods) {

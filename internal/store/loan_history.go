@@ -10,7 +10,7 @@ import (
 )
 
 const loanHistoryColumns = `account_id, original_principal_cents, first_payment_date, total_periods,
-	method, initial_annual_rate, rate_changes, prepayments, created_at, updated_at`
+	method, initial_annual_rate, rate_changes, prepayments, disbursement_date, created_at, updated_at`
 
 // GetLoanHistory returns the account's full-history plan, or nil when absent.
 func (s *Store) GetLoanHistory(ctx context.Context, accountID string) (*domain.LoanHistory, error) {
@@ -49,9 +49,10 @@ func (s *Store) UpsertLoanHistory(ctx context.Context, h *domain.LoanHistory) er
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, `INSERT INTO loan_histories(`+loanHistoryColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(account_id) DO UPDATE SET
 			original_principal_cents = excluded.original_principal_cents,
+			disbursement_date = excluded.disbursement_date,
 			first_payment_date = excluded.first_payment_date,
 			total_periods = excluded.total_periods,
 			method = excluded.method,
@@ -60,7 +61,7 @@ func (s *Store) UpsertLoanHistory(ctx context.Context, h *domain.LoanHistory) er
 			prepayments = excluded.prepayments,
 			updated_at = excluded.updated_at`,
 		h.AccountID, h.OriginalPrincipalCents, h.FirstPaymentDate, h.TotalPeriods,
-		h.Method, h.InitialAnnualRate, string(changes), string(prepayments),
+		h.Method, h.InitialAnnualRate, string(changes), string(prepayments), nullableText(h.DisbursementDate),
 		formatTime(h.CreatedAt), formatTime(h.UpdatedAt))
 	return err
 }
@@ -78,9 +79,13 @@ func (s *Store) DeleteLoanHistory(ctx context.Context, accountID string) error {
 func scanLoanHistory(row rowScanner) (*domain.LoanHistory, error) {
 	var h domain.LoanHistory
 	var changes, prepayments, created, updated string
+	var disbursement sql.NullString
 	if err := row.Scan(&h.AccountID, &h.OriginalPrincipalCents, &h.FirstPaymentDate, &h.TotalPeriods,
-		&h.Method, &h.InitialAnnualRate, &changes, &prepayments, &created, &updated); err != nil {
+		&h.Method, &h.InitialAnnualRate, &changes, &prepayments, &disbursement, &created, &updated); err != nil {
 		return nil, err
+	}
+	if disbursement.Valid {
+		h.DisbursementDate = disbursement.String
 	}
 	if err := json.Unmarshal([]byte(changes), &h.RateChanges); err != nil {
 		return nil, err
@@ -91,4 +96,11 @@ func scanLoanHistory(row rowScanner) (*domain.LoanHistory, error) {
 	h.CreatedAt = parseTime(created)
 	h.UpdatedAt = parseTime(updated)
 	return &h, nil
+}
+
+func nullableText(v string) any {
+	if v == "" {
+		return nil
+	}
+	return v
 }
