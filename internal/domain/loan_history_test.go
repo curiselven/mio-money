@@ -334,41 +334,42 @@ func TestHistoryDisbursementValidation(t *testing.T) {
 	}
 }
 
-func TestHistorySplitInterestBankExample(t *testing.T) {
+func TestHistorySplitInterestSingleChange(t *testing.T) {
 	h := testHistory()
-	h.OriginalPrincipalCents = 86_121_363
-	h.InitialAnnualRate = "5.88"
+	h.OriginalPrincipalCents = 100_000_000
+	h.InitialAnnualRate = "5.00"
 	h.FirstPaymentDate = "2026-01-20"
-	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-01", AnnualRate: "5.73"}}
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-01", AnnualRate: "4.00"}}
 	periods, err := domain.LoanHistorySchedule(h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 19 days new + 11 days old: 86121363 * (5.88*11 + 5.73*19) / 36000.
-	if periods[0].InterestCents != 415_177 {
-		t.Fatalf("first interest = %d, want 415177", periods[0].InterestCents)
+	// 19 days new + 11 days old: 100000000 * (5.00*11 + 4.00*19) / 36000.
+	if periods[0].InterestCents != 363_889 {
+		t.Fatalf("first interest = %d, want 363889", periods[0].InterestCents)
 	}
-	if !periods[0].RateSplit || periods[0].AnnualRate != "5.73" {
+	if !periods[0].RateSplit || periods[0].AnnualRate != "4.00" {
 		t.Fatalf("first period = %+v", periods[0])
 	}
 }
 
 func TestHistorySplitInterestEqualPrincipal(t *testing.T) {
 	h := testHistory()
-	h.OriginalPrincipalCents = 86_121_363
-	h.InitialAnnualRate = "5.88"
+	h.OriginalPrincipalCents = 100_000_000
+	h.InitialAnnualRate = "5.00"
 	h.FirstPaymentDate = "2026-01-20"
 	h.TotalPeriods = 12
 	h.Method = domain.LoanEqualPrincipal
-	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-01", AnnualRate: "5.73"}}
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-01", AnnualRate: "4.00"}}
 	periods, err := domain.LoanHistorySchedule(h)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if periods[0].InterestCents != 415_177 || !periods[0].RateSplit {
+	// 100000000 * (5.00*11 + 4.00*19) / 36000 = 363888.89 -> 363889.
+	if periods[0].InterestCents != 363_889 || !periods[0].RateSplit {
 		t.Fatalf("first period = %+v", periods[0])
 	}
-	if periods[0].PrincipalCents != 7_176_780 {
+	if periods[0].PrincipalCents != 8_333_333 {
 		t.Fatalf("first principal = %d", periods[0].PrincipalCents)
 	}
 }
