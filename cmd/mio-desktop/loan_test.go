@@ -225,3 +225,27 @@ func TestLoanHistoryDisbursementAndPaidTotals(t *testing.T) {
 		t.Fatalf("saved view = %+v, err = %v", view, err)
 	}
 }
+
+func TestLoanReconcileUsesFormPlan(t *testing.T) {
+	loans, _, _ := newLoanTest(t)
+	form := historyFormInput("acc_demo")
+	view, err := loans.PreviewHistory(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	period := view.Periods[6]
+	balance := period.BalanceCents
+	result, err := loans.Reconcile(LoanReconcileInput{
+		Plan: form,
+		Samples: []domain.BankPeriodSample{{
+			Date:           period.Date,
+			PaymentCents:   period.PaymentCents,
+			PrincipalCents: period.PrincipalCents,
+			InterestCents:  period.InterestCents,
+			BalanceCents:   &balance,
+		}},
+	})
+	if err != nil || result.Matched != 1 || len(result.Samples) != 1 || !result.Samples[0].Matched {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+}
