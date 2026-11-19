@@ -202,3 +202,21 @@ func TestOverviewShowsLoanBriefing(t *testing.T) {
 		t.Fatalf("loan = %+v, expected = %+v", loan, expected)
 	}
 }
+
+func TestOverviewLiabilityWithoutLoanHasNoBriefing(t *testing.T) {
+	ctx := context.Background()
+	overview, svc := newOverview(t)
+	card, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "信用卡", Type: domain.AccountLiability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitCashConfirmed(t, svc, card.ID, "2026-01-01", -200_000)
+
+	got, err := overview.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Accounts) != 1 || got.Accounts[0].Loan != nil {
+		t.Fatalf("liability without loan terms must have no briefing: %+v", got.Accounts)
+	}
+}
