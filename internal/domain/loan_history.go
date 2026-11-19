@@ -9,8 +9,30 @@ import (
 )
 
 type LoanRateChange struct {
-	Date       string `json:"date"`
-	AnnualRate string `json:"annual_rate"`
+	Date          string        `json:"date"`
+	AnnualRate    string        `json:"annual_rate"`
+	PrincipalRule PrincipalRule `json:"principal_rule,omitempty"`
+}
+
+// PrincipalRule selects how the principal is split in the period where the
+// rate change becomes effective (equal installment only).
+type PrincipalRule string
+
+const (
+	PrincipalNewSchedule  PrincipalRule = "new_schedule"
+	PrincipalFixedPayment PrincipalRule = "fixed_payment"
+	PrincipalOldSchedule  PrincipalRule = "old_schedule"
+)
+
+func (r PrincipalRule) Valid() bool {
+	return r == PrincipalNewSchedule || r == PrincipalFixedPayment || r == PrincipalOldSchedule
+}
+
+func (r PrincipalRule) orDefault() PrincipalRule {
+	if r == "" {
+		return PrincipalNewSchedule
+	}
+	return r
 }
 
 type PrepaymentMode string
@@ -35,6 +57,7 @@ type LoanPrepayment struct {
 type LoanHistory struct {
 	AccountID              string           `json:"account_id"`
 	OriginalPrincipalCents int64            `json:"original_principal_cents"`
+	DisbursementDate       string           `json:"disbursement_date,omitempty"`
 	FirstPaymentDate       string           `json:"first_payment_date"`
 	TotalPeriods           int              `json:"total_periods"`
 	Method                 LoanMethod       `json:"method"`
@@ -59,6 +82,14 @@ func validateLoanHistory(h *LoanHistory) error {
 	if err := validDate(h.FirstPaymentDate); err != nil {
 		return fmt.Errorf("first_payment_date: %w", err)
 	}
+	if h.DisbursementDate != "" {
+		if err := validDate(h.DisbursementDate); err != nil {
+			return fmt.Errorf("disbursement_date: %w", err)
+		}
+		if h.DisbursementDate >= h.FirstPaymentDate {
+			return errors.New("disbursement_date must be before first_payment_date")
+		}
+	}
 	if h.TotalPeriods <= 0 {
 		return errors.New("total_periods must be > 0")
 	}
@@ -78,6 +109,9 @@ func validateLoanHistory(h *LoanHistory) error {
 		}
 		if _, err := loanMonthlyRate(change.AnnualRate); err != nil {
 			return fmt.Errorf("rate_changes[%d].annual_rate: %w", i, err)
+		}
+		if change.PrincipalRule != "" && !change.PrincipalRule.Valid() {
+			return fmt.Errorf("rate_changes[%d].principal_rule %q must be new_schedule, fixed_payment or old_schedule", i, change.PrincipalRule)
 		}
 		if seen[change.Date] {
 			return fmt.Errorf("rate_changes[%d]: duplicate date %s", i, change.Date)
@@ -132,10 +166,10 @@ func historyPaymentDates(first string, n int) ([]string, error) {
 	return dates, nil
 }
 
-// historyRateAt applies a rate change from the first payment date strictly
-// after the effective date. A change dated between two payments (or on a
-// payment date) therefore starts on the next payment; the whole period uses
-// the new rate, with no day-count split.
+// historyRateAt returns the rate used to recompute the monthly payment for a
+// period ending on date: a change applies from the first payment strictly after
+// its effective date. Interest within the transition period is split by
+// historyPeriodInterest; a change on the payment date has 0 new days there.
 func historyRateAt(changes []LoanRateChange, initial, date string) string {
 	rate := initial
 	for _, change := range changes {
@@ -145,6 +179,81 @@ func historyRateAt(changes []LoanRateChange, initial, date string) string {
 		rate = change.AnnualRate
 	}
 	return rate
+}
+
+// latestPrincipalRule returns the rule of the change that supplies the rate for
+// the period ending on date. When several changes fall in one period, the last
+// one governs the principal.
+func latestPrincipalRule(changes []LoanRateChange, date string) PrincipalRule {
+	var rule PrincipalRule
+	for _, change := range changes {
+		if change.Date >= date {
+			break
+		}
+		rule = change.PrincipalRule
+	}
+	return rule.orDefault()
+}
+
+// historyFirstPeriodInterest uses the domestic actual/360 convention:
+// principal * annual rate * actual days / 360. Expressed with the monthly rate
+// that is monthly * days / 30; switch the 30 to 365/12 * 30 here for actual/365.
+func historyFirstPeriodInterest(principal int64, monthly *big.Rat, days int) int64 {
+	interest := new(big.Rat).SetInt64(principal)
+	interest.Mul(interest, monthly)
+	interest.Mul(interest, big.NewRat(int64(days), 30))
+	return roundRatCents(interest)
+}
+
+// historyPeriodInterest applies the bank convention verified against a real
+// repayment statement: each period is modeled as 30 days ending on curDate. A
+// rate change effective on cd with curDate-30 < cd <= curDate splits the
+// interest into actual-day segments. A split needs prevDate < cd < curDate (no
+// prevDate means the first period): curDate-30 is the day-count anchor, so the
+// first segment starts there and the last ends at curDate, summing to 30 days.
+// All segments use their own annual rate. A change on the payment date itself
+// gets 0 new days (old rate for the whole period); a change at or before
+// curDate-30 means the whole period uses the new rate. Multiple changes are
+// split in time order. The result is rounded to cents once, after summing exact
+// rationals.
+func historyPeriodInterest(balance int64, prevDate, curDate, initial string, changes []LoanRateChange, fallback *big.Rat) (int64, bool) {
+	cur, err := time.Parse("2006-01-02", curDate)
+	if err != nil {
+		return interestCents(balance, fallback), false
+	}
+	start := cur.AddDate(0, 0, -30).Format("2006-01-02")
+	points := []string{start}
+	for _, change := range changes {
+		if change.Date > start && (prevDate == "" || change.Date > prevDate) && change.Date < curDate {
+			points = append(points, change.Date)
+		}
+	}
+	if len(points) == 1 {
+		return interestCents(balance, fallback), false
+	}
+	points = append(points, curDate)
+	total := new(big.Rat)
+	for i := 0; i+1 < len(points); i++ {
+		days := daysBetween(points[i], points[i+1])
+		if days <= 0 {
+			continue
+		}
+		monthly, err := loanMonthlyRate(historyRateAt(changes, initial, points[i+1]))
+		if err != nil {
+			return interestCents(balance, fallback), false
+		}
+		part := new(big.Rat).SetInt64(balance)
+		part.Mul(part, monthly)
+		part.Mul(part, big.NewRat(int64(days), 30))
+		total.Add(total, part)
+	}
+	return roundRatCents(total), true
+}
+
+func daysBetween(start, end string) int {
+	from, _ := time.Parse("2006-01-02", start)
+	to, _ := time.Parse("2006-01-02", end)
+	return int(to.Sub(from).Hours() / 24)
 }
 
 // periodsToPayoff simulates cents-rounded payments to see how many periods the
@@ -202,7 +311,12 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 	for k := 1; k <= total; k++ {
 		date := dates[k-1]
 		nextRate := historyRateAt(changes, h.InitialAnnualRate, date)
+		var transitionRule PrincipalRule
+		var previousMonthly *big.Rat
+		var previousPayment int64
 		if nextRate != rate {
+			previousMonthly = monthly
+			previousPayment = payment
 			rate = nextRate
 			monthly, err = loanMonthlyRate(rate)
 			if err != nil {
@@ -211,6 +325,7 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 			remaining := total - k + 1
 			if h.Method == LoanEqualInstallment {
 				payment = installmentPayment(balance, monthly, remaining)
+				transitionRule = latestPrincipalRule(changes, date)
 			} else {
 				base = balance / int64(remaining)
 			}
@@ -259,14 +374,37 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 		}
 
 		interest := interestCents(balance, monthly)
+		rateSplit := false
+		if !(k == 1 && h.DisbursementDate != "") {
+			prevDate := ""
+			if k > 1 {
+				prevDate = dates[k-2]
+			}
+			interest, rateSplit = historyPeriodInterest(balance, prevDate, date, h.InitialAnnualRate, changes, monthly)
+		}
 		var principal int64
-		if h.Method == LoanEqualInstallment {
+		switch {
+		case h.Method == LoanEqualPrincipal:
+			principal = base
+			if principal < 1 {
+				principal = 1
+			}
+		case transitionRule == PrincipalFixedPayment:
 			principal = payment - interest
 			if principal < 1 {
 				principal = 1
 			}
-		} else {
-			principal = base
+		case transitionRule == PrincipalOldSchedule:
+			principal = previousPayment - interestCents(balance, previousMonthly)
+			if principal < 1 {
+				principal = 1
+			}
+		default:
+			if transitionRule != "" {
+				principal = payment - interestCents(balance, monthly)
+			} else {
+				principal = payment - interest
+			}
 			if principal < 1 {
 				principal = 1
 			}
@@ -274,11 +412,16 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 		if k == total || principal > balance {
 			principal = balance
 		}
+		if k == 1 && h.DisbursementDate != "" {
+			interest = historyFirstPeriodInterest(balance, monthly, daysBetween(h.DisbursementDate, date))
+		}
 		balance -= principal
 		periods = append(periods, LoanPeriod{
 			Number:         k,
 			Date:           date,
 			AnnualRate:     rate,
+			RateSplit:      rateSplit,
+			PrincipalRule:  transitionRule,
 			PaymentCents:   principal + interest,
 			PrincipalCents: principal,
 			InterestCents:  interest,
@@ -307,7 +450,7 @@ func LoanHistoryAt(h LoanHistory, asOf string) (*LoanHistoryView, error) {
 	}
 	return &LoanHistoryView{
 		History:         h,
-		LoanCalculation: *calculationAt(periods, asOf, h.OriginalPrincipalCents),
+		LoanCalculation: *calculationAt(periods, asOf, h.OriginalPrincipalCents, h.Prepayments),
 		Periods:         periods,
 	}, nil
 }

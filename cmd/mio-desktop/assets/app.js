@@ -25,6 +25,7 @@ const tabs = [...document.querySelectorAll(".tab")];
 
 const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "对账单", manual: "手动" };
 const typeLabels = { cash: "现金", fund: "基金", stock: "股票", mixed: "混合", liability: "负债", other: "其他" };
+const principalRuleLabels = { new_schedule: "新月供本金", fixed_payment: "月供不变", old_schedule: "旧月供本金" };
 const views = {
   overview: {
     title: "总览",
@@ -65,6 +66,11 @@ function signedMoney(cents) {
 
 function signedPercent(percent) {
   return `${percent > 0 ? "+" : ""}${percent.toFixed(2)}%`;
+}
+
+function paidSummary(calc) {
+  const prepaid = calc.prepaid_cents ? `，其中提前还款 ${money(calc.prepaid_cents)}` : "";
+  return `截至今天：已还 ${calc.paid_periods} 期，本金 ${money(calc.paid_principal_cents)}，利息 ${money(calc.paid_interest_cents)}，合计 ${money(calc.paid_total_cents)}${prepaid}`;
 }
 
 function centsToYuan(cents) {
@@ -279,11 +285,16 @@ function readHistoryForm(panel, prepayments) {
     if (!date || !rate) {
       return { error: "利率调整的生效日期和利率都要填写" };
     }
-    changes.push({ date, annual_rate: rate });
+    changes.push({
+      date,
+      annual_rate: rate,
+      principal_rule: row.querySelector(".rate-change-principal").value,
+    });
   }
   const values = {
     account_id: panel.dataset.accountId,
     original_principal_cents: principal,
+    disbursement_date: panel.querySelector(".loan-disbursement").value.trim(),
     first_payment_date: panel.querySelector(".loan-first-date").value.trim(),
     total_periods: Number(panel.querySelector(".loan-total-periods").value),
     method: panel.querySelector(".loan-method").value,
@@ -330,7 +341,7 @@ function renderLoanPeriods(panel, periods) {
     for (const text of [
       period.period,
       period.date,
-      `${period.annual_rate}%`,
+      `${period.annual_rate}%${period.rate_split ? " · 拆分计息" : ""}${period.principal_rule ? ` · ${principalRuleLabels[period.principal_rule] || period.principal_rule}` : ""}`,
       money(period.payment_cents),
       money(period.principal_cents),
       money(period.interest_cents),
@@ -376,7 +387,7 @@ async function previewLoan(panel) {
       if (seq !== previewSeq || panel.hidden) return;
       const next = result.next_payment;
       const current = next ? `当前月供 ${money(next.payment_cents)}` : "已还清";
-      preview.textContent = `已还 ${result.paid_periods} 期 · ${current} · 剩余本金 ${money(result.balance_cents)} · 剩余利息 ${money(result.remaining_interest_cents)}${next ? ` · 下期 ${next.date}` : ""}`;
+      preview.textContent = `${current} · 剩余本金 ${money(result.balance_cents)} · 剩余利息 ${money(result.remaining_interest_cents)}${next ? ` · 下期 ${next.date}` : ""}\n${paidSummary(result)}`;
       renderLoanPeriods(panel, result.periods);
     } else {
       const result = await call("LoanService.Preview", values);
@@ -427,6 +438,7 @@ function buildLoanPanel(account) {
   const day = inputElement("loan-day", { type: "number", min: 1, max: 28 });
   const periods = inputElement("loan-periods", { type: "number", min: 1 });
   const originalPrincipal = inputElement("loan-principal-history", { type: "text", inputmode: "decimal", placeholder: "1000000.00" });
+  const disbursement = inputElement("loan-disbursement", { type: "date" });
   const firstDate = inputElement("loan-first-date", { type: "date" });
   const totalPeriods = inputElement("loan-total-periods", { type: "number", min: 1 });
   const initialRate = inputElement("loan-initial-rate", { type: "text", inputmode: "decimal", placeholder: "4.90" });
@@ -461,6 +473,7 @@ function buildLoanPanel(account) {
   historyFields.className = "loan-fields loan-history-fields";
   historyFields.append(
     loanField("原始本金（元）", originalPrincipal),
+    loanField("放款日（可选）", disbursement),
     loanField("首期还款日", firstDate),
     loanField("总期数", totalPeriods),
     loanField("初始年利率（%）", initialRate),
@@ -496,6 +509,20 @@ function buildLoanPanel(account) {
     date.value = change.date || "";
     const newRate = inputElement("rate-change-rate", { type: "text", inputmode: "decimal", placeholder: "3.20", "aria-label": "新年利率" });
     newRate.value = change.annual_rate || "";
+    const principalRule = document.createElement("select");
+    principalRule.className = "rate-change-principal";
+    principalRule.setAttribute("aria-label", "当期本金算法");
+    for (const [value, label] of [
+      ["new_schedule", "当期本金：新月供"],
+      ["fixed_payment", "当期本金：月供不变"],
+      ["old_schedule", "当期本金：旧月供"],
+    ]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      principalRule.append(option);
+    }
+    principalRule.value = change.principal_rule || "new_schedule";
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "secondary rate-change-remove";
@@ -504,7 +531,7 @@ function buildLoanPanel(account) {
       row.remove();
       previewLoan(panel);
     });
-    row.append(date, newRate, remove);
+    row.append(date, newRate, principalRule, remove);
     ratesBox.append(row);
   };
   const setRateRows = (changes) => {
@@ -535,6 +562,7 @@ function buildLoanPanel(account) {
     day.value = String(terms?.payment_day || 1);
     periods.value = terms ? String(account.loan.remaining_periods) : "";
     originalPrincipal.value = existingHistory ? centsToYuan(existingHistory.original_principal_cents) : "";
+    disbursement.value = existingHistory?.disbursement_date || "";
     firstDate.value = existingHistory?.first_payment_date || localToday;
     totalPeriods.value = existingHistory ? String(existingHistory.total_periods) : "";
     initialRate.value = existingHistory?.initial_annual_rate || "";
@@ -648,14 +676,19 @@ function renderAccounts(accounts) {
         openLoanPanel(details, panel);
       });
       if (account.loan) {
-        const loan = document.createElement("span");
-        loan.className = "account-loan";
+        const text = document.createElement("div");
+        text.className = "account-loan";
         const next = account.loan.next_date
           ? `下期 ${account.loan.next_date} 月供 ${money(account.loan.next_payment_cents)}`
           : "已还清";
-        loan.textContent = `还剩 ${account.loan.remaining_periods} 期 · ${next} · 剩余利息 ${money(account.loan.remaining_interest_cents)}`;
+        const status = document.createElement("div");
+        status.textContent = `还剩 ${account.loan.remaining_periods} 期 · ${next} · 剩余利息 ${money(account.loan.remaining_interest_cents)}`;
+        const paid = document.createElement("div");
+        paid.className = "account-loan-paid";
+        paid.textContent = paidSummary(account.loan);
+        text.append(status, paid);
         edit.textContent = "修改还款计划";
-        row.append(loan, edit);
+        row.append(text, edit);
       } else {
         edit.className += " loan-setup";
         edit.textContent = "设为贷款…";

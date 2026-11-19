@@ -69,8 +69,9 @@ type GetLoanInput struct {
 }
 
 type LoanRateChangeInput struct {
-	Date       string `json:"date" jsonschema:"effective date, YYYY-MM-DD; applies from the first payment after it"`
-	AnnualRate string `json:"annual_rate" jsonschema:"annual rate as a decimal string, e.g. \"3.20\"; 0-30"`
+	Date          string `json:"date" jsonschema:"effective date, YYYY-MM-DD; applies from the first payment after it"`
+	AnnualRate    string `json:"annual_rate" jsonschema:"annual rate as a decimal string, e.g. \"3.20\"; 0-30"`
+	PrincipalRule string `json:"principal_rule,omitempty" jsonschema:"equal installment principal in the transition period: new_schedule (default), fixed_payment or old_schedule"`
 }
 
 type LoanPrepaymentInput struct {
@@ -82,6 +83,7 @@ type LoanPrepaymentInput struct {
 type SetLoanHistoryInput struct {
 	AccountID              string                `json:"account_id" jsonschema:"liability account id"`
 	OriginalPrincipalCents int64                 `json:"original_principal_cents" jsonschema:"original loan principal, integer cents"`
+	DisbursementDate       string                `json:"disbursement_date,omitempty" jsonschema:"optional disbursement date, YYYY-MM-DD; first period interest uses actual days / 360"`
 	FirstPaymentDate       string                `json:"first_payment_date" jsonschema:"date of period 1; its day of month is the payment day"`
 	TotalPeriods           int                   `json:"total_periods" jsonschema:"total contracted periods"`
 	Method                 string                `json:"method" jsonschema:"equal_installment or equal_principal"`

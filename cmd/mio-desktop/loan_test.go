@@ -192,3 +192,36 @@ func TestLoanHistorySaveReplacesAnchor(t *testing.T) {
 		t.Fatalf("overview = %+v", overview.Accounts)
 	}
 }
+
+func TestLoanHistoryDisbursementAndPaidTotals(t *testing.T) {
+	ctx := context.Background()
+	loans, svc, st := newLoanTest(t)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "测试房贷", Type: domain.AccountLiability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := historyFormInput(account.ID)
+	form.DisbursementDate = "2026-01-01"
+	view, err := loans.PreviewHistory(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 19 days: 100000000 * 49/12000 * 19/30 = 258611.11 -> 258611.
+	if view.Periods[0].InterestCents != 258_611 {
+		t.Fatalf("first interest = %d", view.Periods[0].InterestCents)
+	}
+	if view.PaidPeriods == 0 || view.PaidTotalCents != view.PaidPrincipalCents+view.PaidInterestCents {
+		t.Fatalf("paid totals = %+v", view.LoanCalculation)
+	}
+	if _, err := loans.SaveHistory(form); err != nil {
+		t.Fatal(err)
+	}
+	history, err := st.GetLoanHistory(ctx, account.ID)
+	if err != nil || history == nil || history.DisbursementDate != "2026-01-01" {
+		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+	view, err = svc.LoanHistory(ctx, account.ID)
+	if err != nil || view.PrepaidCents != 0 || view.PaidTotalCents != view.PaidPrincipalCents+view.PaidInterestCents {
+		t.Fatalf("saved view = %+v, err = %v", view, err)
+	}
+}

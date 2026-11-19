@@ -411,9 +411,16 @@ button.danger:hover { background: #9a3412; }
 }
 
 .account-loan {
+  display: grid;
+  gap: 2px;
   color: #475467;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.account-loan-paid {
+  color: #98a2b3;
+  font-size: 11px;
 }
 
 button.loan-edit {
@@ -479,6 +486,7 @@ button.loan-setup:hover {
   color: #344054;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  white-space: pre-line;
 }
 
 .loan-hint {
@@ -515,12 +523,13 @@ button.loan-setup:hover {
 
 .rate-change-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) auto;
   gap: 8px;
   align-items: center;
 }
 
-.rate-change-row input {
+.rate-change-row input,
+.rate-change-row select {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid #d7dde5;
