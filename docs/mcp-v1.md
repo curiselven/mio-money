@@ -67,7 +67,7 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 | `undo_snapshot(account_id)` | 撤回该账户最近一次确认 |
 | `upsert_account(...)` | 新建或修改账户 |
 | `set_loan_terms(account_id, anchor_date, anchor_principal_cents, annual_rate, method, payment_day, remaining_periods)` | 设置/重设贷款条款；账户必须是 liability。anchor_date 当天没有快照时自动写一条 confirmed 快照 |
-| `set_loan_history(account_id, original_principal_cents, first_payment_date, total_periods, method, initial_annual_rate, rate_changes?, prepayments?)` | 「从头算」：按首期开始完整重放还款计划；会替换该账户的锚点条款 |
+| `set_loan_history(account_id, original_principal_cents, disbursement_date?, first_payment_date, total_periods, method, initial_annual_rate, rate_changes?, prepayments?)` | 「从头算」：按首期开始完整重放还款计划；会替换该账户的锚点条款 |
 
 ### 读取
 | 工具 | 作用 |
@@ -78,7 +78,7 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 | `get_history(account_id?, from?, to?)` | 净资产或账户市值的时间序列 |
 | `list_pending()` | 待确认的快照 |
 | `get_loan(account_id, schedule?)` | 贷款条款 + 当前剩余本金、剩余期数、下期月供/本金/利息、剩余总利息；`schedule:true` 返回未来全部期次 |
-| `get_loan_history(account_id, from?, to?, schedule?)` | 完整历史计划的当前状态与每期明细；`from`/`to` 按期号（1 起）切片，`schedule:true` 返回全部 |
+| `get_loan_history(account_id, from?, to?, schedule?)` | 完整历史计划的当前状态（含已还本金/利息/合计/提前还款合计）与每期明细；`from`/`to` 按期号（1 起）切片，`schedule:true` 返回全部 |
 
 ## V1 不做
 
@@ -110,6 +110,7 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 - 等额本息在首期和每个利率生效后的第一期，用当时剩余本金、剩余期数、新月利率重算月供；等额本金同样在这些点重算每期本金。
 - 利率生效日落在两期之间时，从生效日之后的第一个还款日整期使用新利率（不按天拆分）；生效日正好是还款日时，下一期才生效。
 - 提前还款支持 `shorten_periods`（月供不变、缩短期限）和 `reduce_payment`（期限不变、重算月供）；日期在两期之间时在下一期生效，与还款日同日时在当期月供后扣减。
+- 可选 `disbursement_date`（放款日）必须早于首期还款日。填了它时，第 1 期利息按「实际天数/360」计算（本金 × 年利率 × 天数 / 360，四舍五入到分）；等额本息第 1 期本金仍按整月规则拆分，所以只有第 1 期还款额变化，之后各期与余额不变。不填则与整月口径一致。
 - `--loan-sync` 与桌面/MCP 启动时的自动同步会按计划从首期补写已过扣款日的负债快照。
 
 ## 已定（2026-11-18）

@@ -69,6 +69,7 @@ func (s *LoanService) Save(in LoanFormInput) (*domain.LoanTerms, error) {
 type LoanHistoryFormInput struct {
 	AccountID              string                  `json:"account_id"`
 	OriginalPrincipalCents int64                   `json:"original_principal_cents"`
+	DisbursementDate       string                  `json:"disbursement_date,omitempty"`
 	FirstPaymentDate       string                  `json:"first_payment_date"`
 	TotalPeriods           int                     `json:"total_periods"`
 	Method                 string                  `json:"method"`
@@ -81,6 +82,7 @@ func (in LoanHistoryFormInput) history() domain.LoanHistory {
 	return domain.LoanHistory{
 		AccountID:              in.AccountID,
 		OriginalPrincipalCents: in.OriginalPrincipalCents,
+		DisbursementDate:       in.DisbursementDate,
 		FirstPaymentDate:       in.FirstPaymentDate,
 		TotalPeriods:           in.TotalPeriods,
 		Method:                 domain.LoanMethod(in.Method),
@@ -95,6 +97,7 @@ func (in LoanHistoryFormInput) domainInput(origin string) domain.SetLoanHistoryI
 	return domain.SetLoanHistoryInput{
 		AccountID:              history.AccountID,
 		OriginalPrincipalCents: history.OriginalPrincipalCents,
+		DisbursementDate:       history.DisbursementDate,
 		FirstPaymentDate:       history.FirstPaymentDate,
 		TotalPeriods:           history.TotalPeriods,
 		Method:                 history.Method,

@@ -165,7 +165,7 @@ func NewServer(svc *domain.Service) *sdk.Server {
 
 	sdk.AddTool(server, &sdk.Tool{
 		Name:        "set_loan_history",
-		Description: "Replace the account's plan with a full-history plan replayed from period 1 like a bank: initial principal, first payment date, total periods, method, initial annual rate, rate changes and optional prepayments. A rate change applies from the first payment strictly after its effective date. This removes any anchor-mode terms for the account; existing snapshots are kept.",
+		Description: "Replace the account's plan with a full-history plan replayed from period 1 like a bank: initial principal, optional disbursement date (period 1 interest uses actual days / 360), first payment date, total periods, method, initial annual rate, rate changes and optional prepayments. A rate change applies from the first payment strictly after its effective date. This removes any anchor-mode terms for the account; existing snapshots are kept.",
 	}, func(ctx context.Context, _ *sdk.CallToolRequest, in SetLoanHistoryInput) (*sdk.CallToolResult, domain.LoanHistory, error) {
 		changes := make([]domain.LoanRateChange, len(in.RateChanges))
 		for i, c := range in.RateChanges {
@@ -178,6 +178,7 @@ func NewServer(svc *domain.Service) *sdk.Server {
 		history, err := svc.SetLoanHistory(ctx, domain.SetLoanHistoryInput{
 			AccountID:              in.AccountID,
 			OriginalPrincipalCents: in.OriginalPrincipalCents,
+			DisbursementDate:       in.DisbursementDate,
 			FirstPaymentDate:       in.FirstPaymentDate,
 			TotalPeriods:           in.TotalPeriods,
 			Method:                 domain.LoanMethod(in.Method),

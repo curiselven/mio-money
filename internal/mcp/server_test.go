@@ -117,18 +117,19 @@ func TestToolsRoundTrip(t *testing.T) {
 	call(t, session, "set_loan_history", map[string]any{
 		"account_id":               liability.ID,
 		"original_principal_cents": 100_000_000,
+		"disbursement_date":        "2026-01-01",
 		"first_payment_date":       "2026-01-20",
 		"total_periods":            12,
 		"method":                   "equal_installment",
 		"initial_annual_rate":      "4.90",
 		"rate_changes":             []map[string]any{{"date": "2026-06-25", "annual_rate": "5.00"}},
 	}, &history)
-	if history.TotalPeriods != 12 || len(history.RateChanges) != 1 {
+	if history.TotalPeriods != 12 || len(history.RateChanges) != 1 || history.DisbursementDate != "2026-01-01" {
 		t.Fatalf("history = %+v", history)
 	}
 	var historyView domain.LoanHistoryView
 	call(t, session, "get_loan_history", map[string]any{"account_id": liability.ID, "schedule": true}, &historyView)
-	if len(historyView.Periods) != 12 || historyView.PaidPeriods == 0 {
+	if len(historyView.Periods) != 12 || historyView.PaidPeriods == 0 || historyView.PaidTotalCents <= 0 {
 		t.Fatalf("history view = %+v", historyView.LoanCalculation)
 	}
 	var sliced domain.LoanHistoryView

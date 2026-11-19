@@ -82,6 +82,7 @@ type LoanPrepaymentInput struct {
 type SetLoanHistoryInput struct {
 	AccountID              string                `json:"account_id" jsonschema:"liability account id"`
 	OriginalPrincipalCents int64                 `json:"original_principal_cents" jsonschema:"original loan principal, integer cents"`
+	DisbursementDate       string                `json:"disbursement_date,omitempty" jsonschema:"optional disbursement date, YYYY-MM-DD; first period interest uses actual days / 360"`
 	FirstPaymentDate       string                `json:"first_payment_date" jsonschema:"date of period 1; its day of month is the payment day"`
 	TotalPeriods           int                   `json:"total_periods" jsonschema:"total contracted periods"`
 	Method                 string                `json:"method" jsonschema:"equal_installment or equal_principal"`

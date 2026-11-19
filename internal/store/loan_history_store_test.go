@@ -27,6 +27,7 @@ func TestLoanHistoryRoundTrip(t *testing.T) {
 	history := &domain.LoanHistory{
 		AccountID:              "acc_loan",
 		OriginalPrincipalCents: 100_000_000,
+		DisbursementDate:       "2025-12-15",
 		FirstPaymentDate:       "2026-01-20",
 		TotalPeriods:           360,
 		Method:                 domain.LoanEqualInstallment,
@@ -48,7 +49,8 @@ func TestLoanHistoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got == nil || got.TotalPeriods != 360 || len(got.RateChanges) != 2 || len(got.Prepayments) != 1 {
+	if got == nil || got.TotalPeriods != 360 || got.DisbursementDate != "2025-12-15" ||
+		len(got.RateChanges) != 2 || len(got.Prepayments) != 1 {
 		t.Fatalf("history = %+v", got)
 	}
 	if got.RateChanges[1].AnnualRate != "3.20" || got.Prepayments[0].Mode != domain.PrepayShortenPeriods {
