@@ -163,5 +163,61 @@ func NewServer(svc *domain.Service) *sdk.Server {
 		return nil, *view, nil
 	})
 
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "set_loan_history",
+		Description: "Replace the account's plan with a full-history plan replayed from period 1 like a bank: initial principal, first payment date, total periods, method, initial annual rate, rate changes and optional prepayments. A rate change applies from the first payment strictly after its effective date. This removes any anchor-mode terms for the account; existing snapshots are kept.",
+	}, func(ctx context.Context, _ *sdk.CallToolRequest, in SetLoanHistoryInput) (*sdk.CallToolResult, domain.LoanHistory, error) {
+		changes := make([]domain.LoanRateChange, len(in.RateChanges))
+		for i, c := range in.RateChanges {
+			changes[i] = domain.LoanRateChange{Date: c.Date, AnnualRate: c.AnnualRate}
+		}
+		prepayments := make([]domain.LoanPrepayment, len(in.Prepayments))
+		for i, p := range in.Prepayments {
+			prepayments[i] = domain.LoanPrepayment{Date: p.Date, AmountCents: p.AmountCents, Mode: domain.PrepaymentMode(p.Mode)}
+		}
+		history, err := svc.SetLoanHistory(ctx, domain.SetLoanHistoryInput{
+			AccountID:              in.AccountID,
+			OriginalPrincipalCents: in.OriginalPrincipalCents,
+			FirstPaymentDate:       in.FirstPaymentDate,
+			TotalPeriods:           in.TotalPeriods,
+			Method:                 domain.LoanMethod(in.Method),
+			InitialAnnualRate:      in.InitialAnnualRate,
+			RateChanges:            changes,
+			Prepayments:            prepayments,
+		})
+		if err != nil {
+			return nil, domain.LoanHistory{}, err
+		}
+		return nil, *history, nil
+	})
+
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "get_loan_history",
+		Description: "Full-history loan state as of today: paid periods, balance, next payment and remaining interest, plus the period detail. Pass from/to (1-based) for a slice or schedule:true for all periods.",
+	}, func(ctx context.Context, _ *sdk.CallToolRequest, in GetLoanHistoryInput) (*sdk.CallToolResult, domain.LoanHistoryView, error) {
+		view, err := svc.LoanHistory(ctx, in.AccountID)
+		if err != nil {
+			return nil, domain.LoanHistoryView{}, err
+		}
+		if in.From > 0 || in.To > 0 {
+			from := in.From
+			if from < 1 {
+				from = 1
+			}
+			to := in.To
+			if to <= 0 || to > len(view.Periods) {
+				to = len(view.Periods)
+			}
+			if from <= to {
+				view.Periods = view.Periods[from-1 : to]
+			} else {
+				view.Periods = nil
+			}
+		} else if !in.Schedule {
+			view.Periods = nil
+		}
+		return nil, *view, nil
+	})
+
 	return server
 }
