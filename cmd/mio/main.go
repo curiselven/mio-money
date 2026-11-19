@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"log"
@@ -27,6 +28,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7420", "HTTP listen address")
 	allow := flag.String("allow", "127.0.0.1/32,::1/128", "comma-separated CIDRs allowed to connect")
 	sessionIdle := flag.Duration("session-idle", 30*time.Minute, "expire idle HTTP MCP sessions after this duration")
+	loanSync := flag.Bool("loan-sync", false, "generate loan snapshots for elapsed payment dates, print a JSON summary and exit")
 	flag.Parse()
 
 	if *maxChange < 0 {
@@ -49,6 +51,23 @@ func main() {
 	defer st.Close()
 
 	svc := domain.NewService(st, *maxChange/100)
+	if *loanSync {
+		result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02"))
+		if err != nil {
+			log.Fatalf("loan sync: %v", err)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(result); err != nil {
+			log.Fatalf("loan sync: %v", err)
+		}
+		return
+	}
+	if result, err := svc.SyncLoans(context.Background(), time.Now().Format("2006-01-02")); err != nil {
+		log.Printf("loan sync: %v", err)
+	} else if result.Created > 0 {
+		log.Printf("loan sync: wrote %d snapshots", result.Created)
+	}
 	server := mioserver.NewServer(svc)
 	if *httpMode {
 		handler, err := httpserver.NewHandler(server, httpCfg)

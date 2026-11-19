@@ -336,7 +336,8 @@ button.danger:hover { background: #9a3412; }
   grid-template-columns: minmax(0, 1.4fr) auto auto;
   grid-template-areas:
     "name value share"
-    "date date date";
+    "date date date"
+    "loan loan loan";
   gap: 2px 16px;
   padding: 12px 14px;
   cursor: pointer;
@@ -398,6 +399,13 @@ button.danger:hover { background: #9a3412; }
   grid-area: date;
   color: #98a2b3;
   font-size: 12px;
+}
+
+.account-loan {
+  grid-area: loan;
+  color: #475467;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .holdings {

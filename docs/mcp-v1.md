@@ -66,6 +66,7 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 | `reject_snapshot(snapshot_id, reason?)` | 丢弃 |
 | `undo_snapshot(account_id)` | 撤回该账户最近一次确认 |
 | `upsert_account(...)` | 新建或修改账户 |
+| `set_loan_terms(account_id, anchor_date, anchor_principal_cents, annual_rate, method, payment_day, remaining_periods)` | 设置/重设贷款条款；账户必须是 liability。anchor_date 当天没有快照时自动写一条 confirmed 快照 |
 
 ### 读取
 | 工具 | 作用 |
@@ -75,10 +76,29 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 | `get_net_worth(as_of?)` | 净资产 = 资产 − 负债，按类型和账户分组 |
 | `get_history(account_id?, from?, to?)` | 净资产或账户市值的时间序列 |
 | `list_pending()` | 待确认的快照 |
+| `get_loan(account_id, schedule?)` | 贷款条款 + 当前剩余本金、剩余期数、下期月供/本金/利息、剩余总利息；`schedule:true` 返回未来全部期次 |
 
 ## V1 不做
 
 交易流水、行情抓取、汇率换算、预算记账、云同步。
+
+## 贷款/还款计划（2026-11-19）
+
+负债账户可以带一份还款条款（表 `loans`，一个账户一条）：
+
+| 字段 | 说明 |
+|---|---|
+| anchor_date | 起算日；起算日之后的扣款日按 payment_day 逐月推算 |
+| anchor_principal_cents | 起算日剩余本金（整数分，正数） |
+| annual_rate | 年利率字符串，如 `"3.10"` 表示 3.10%，范围 0–30 |
+| method | `equal_installment`（等额本息）/ `equal_principal`（等额本金） |
+| payment_day | 每月扣款日，1–28 |
+| remaining_periods | 起算日之后还剩多少期 |
+
+- 月利率 = 年利率 / 12 / 100，利息与月供都四舍五入到分；等额本息最后一期结清剩余本金，等额本金尾差放最后一期。
+- 改利率或提前还款：用当时的剩余本金重新 `set_loan_terms`，覆盖旧条款。
+- `mio --loan-sync` 跑一次并按 JSON 输出摘要；stdio MCP 与 `--http` 启动时也会自动跑一次。它把上次已确认快照之后、到今天的每个已过扣款日写成一条 confirmed 快照（`as_of=扣款日`，`cash_cents=-剩余本金`，`source=loan_schedule`），同一 `as_of` 已有快照则跳过，可重复执行；这类快照不经过 20% 异常规则。
+- `set_loan_terms` 写入的起算快照同样走 `loan_schedule`；`submit_snapshot` 不接受这个 source。
 
 ## 已定（2026-11-18）
 

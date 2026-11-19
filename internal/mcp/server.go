@@ -133,5 +133,35 @@ func NewServer(svc *domain.Service) *sdk.Server {
 		return nil, PendingOutput{Snapshots: pending}, nil
 	})
 
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "set_loan_terms",
+		Description: "Set or reset the repayment terms of a liability account. Use the current remaining principal to model a rate change or prepayment. If anchor_date has no snapshot yet, a confirmed snapshot with cash_cents = -anchor_principal_cents (source loan_schedule) is written. Amounts are integer cents; annual_rate is a decimal string like \"3.10\".",
+	}, func(ctx context.Context, _ *sdk.CallToolRequest, in SetLoanTermsInput) (*sdk.CallToolResult, domain.LoanTerms, error) {
+		terms, err := svc.SetLoanTerms(ctx, domain.SetLoanTermsInput{
+			AccountID:            in.AccountID,
+			AnchorDate:           in.AnchorDate,
+			AnchorPrincipalCents: in.AnchorPrincipalCents,
+			AnnualRate:           in.AnnualRate,
+			Method:               domain.LoanMethod(in.Method),
+			PaymentDay:           in.PaymentDay,
+			RemainingPeriods:     in.RemainingPeriods,
+		})
+		if err != nil {
+			return nil, domain.LoanTerms{}, err
+		}
+		return nil, *terms, nil
+	})
+
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "get_loan",
+		Description: "Repayment terms plus the computed state as of today: remaining balance, remaining periods, next payment (date, payment, principal, interest) and remaining total interest. Pass schedule:true for every future period.",
+	}, func(ctx context.Context, _ *sdk.CallToolRequest, in GetLoanInput) (*sdk.CallToolResult, domain.LoanView, error) {
+		view, err := svc.Loan(ctx, in.AccountID, in.Schedule)
+		if err != nil {
+			return nil, domain.LoanView{}, err
+		}
+		return nil, *view, nil
+	})
+
 	return server
 }
