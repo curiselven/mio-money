@@ -35,6 +35,11 @@ type Repo interface {
 	GetLoan(ctx context.Context, accountID string) (*LoanTerms, error)
 	ListLoans(ctx context.Context) ([]LoanTerms, error)
 	UpsertLoan(ctx context.Context, t *LoanTerms) error
+	DeleteLoan(ctx context.Context, accountID string) error
+	GetLoanHistory(ctx context.Context, accountID string) (*LoanHistory, error)
+	ListLoanHistories(ctx context.Context) ([]LoanHistory, error)
+	UpsertLoanHistory(ctx context.Context, h *LoanHistory) error
+	DeleteLoanHistory(ctx context.Context, accountID string) error
 	HasSnapshotAt(ctx context.Context, accountID, asOf string) (bool, error)
 }
 

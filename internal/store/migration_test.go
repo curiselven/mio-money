@@ -74,3 +74,65 @@ func TestLoanMigrationKeepsExistingData(t *testing.T) {
 		t.Fatalf("has snapshot = %v, err = %v", has, err)
 	}
 }
+
+// TestLoanHistoryMigrationKeepsAnchorLoan builds a 0002 database with anchor
+// terms, then opens it so 0003 runs on top without touching the loans row.
+func TestLoanHistoryMigrationKeepsAnchorLoan(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v2.db")
+	init, err := os.ReadFile("migrations/0001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loans, err := os.ReadFile("migrations/0002_loans.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(init)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(string(loans)); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, stmt := range []string{
+		`INSERT INTO schema_version(version, applied_at) VALUES (1, '` + now + `'), (2, '` + now + `')`,
+		`INSERT INTO accounts(id, name, type, created_at, updated_at) VALUES ('acc_old', '旧房贷', 'liability', '` + now + `', '` + now + `')`,
+		`INSERT INTO loans(account_id, anchor_date, anchor_principal_cents, annual_rate, method, payment_day, remaining_periods, created_at, updated_at)
+		 VALUES ('acc_old', '2026-01-01', 100000000, '3.10', 'equal_installment', 20, 240, '` + now + `', '` + now + `')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	loan, err := st.GetLoan(ctx, "acc_old")
+	if err != nil || loan == nil || loan.AnchorPrincipalCents != 100_000_000 {
+		t.Fatalf("loan = %+v, err = %v", loan, err)
+	}
+	if history, err := st.GetLoanHistory(ctx, "acc_old"); err != nil || history != nil {
+		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 3 {
+		t.Fatalf("version = %d, err = %v", version, err)
+	}
+}
