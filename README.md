@@ -13,6 +13,8 @@ go run ./cmd/mio --db /tmp/mio.db
 
 默认数据库在 `~/Library/Application Support/MioMoney/mio.db`（Linux 为 `~/.config/MioMoney/mio.db`），`--db` 可覆盖。异常阈值默认 20%，用 `--max-change` 调整。
 
+贷款账户设好条款后，`go run ./cmd/mio --loan-sync` 会补写已过扣款日的负债快照并输出 JSON 摘要；stdio MCP 与 `--http` 启动时也会自动跑一次。规则见 `docs/mcp-v1.md`。
+
 ## MCP
 
 默认使用 stdio。构建后把可执行文件路径配进 Agent：

@@ -31,6 +31,11 @@ type Repo interface {
 	ListPending(ctx context.Context) ([]*Snapshot, error)
 
 	AddAudit(ctx context.Context, e AuditEntry) error
+
+	GetLoan(ctx context.Context, accountID string) (*LoanTerms, error)
+	ListLoans(ctx context.Context) ([]LoanTerms, error)
+	UpsertLoan(ctx context.Context, t *LoanTerms) error
+	HasSnapshotAt(ctx context.Context, accountID, asOf string) (bool, error)
 }
 
 type Service struct {
@@ -82,7 +87,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 	if source == "" {
 		source = SourceMCP
 	}
-	if !source.Valid() {
+	if source == SourceLoan || !source.Valid() {
 		return nil, fmt.Errorf("source %q must be one of screenshot, mcp, statement, manual", source)
 	}
 	account, err := s.repo.GetAccount(ctx, in.AccountID)
