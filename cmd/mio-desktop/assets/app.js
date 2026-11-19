@@ -323,12 +323,12 @@ function buildLoanPanel(account) {
   const periods = inputElement("loan-periods", { type: "number", min: 1 });
 
   const fill = () => {
-    anchor.value = terms?.anchor_date || localToday;
-    principal.value = terms ? centsToYuan(terms.anchor_principal_cents) : defaultPrincipal;
+    anchor.value = localToday;
+    principal.value = terms ? centsToYuan(account.loan.balance_cents) : defaultPrincipal;
     rate.value = terms?.annual_rate || "";
     method.value = terms?.method || "equal_installment";
     day.value = String(terms?.payment_day || 1);
-    periods.value = terms ? String(terms.remaining_periods) : "";
+    periods.value = terms ? String(account.loan.remaining_periods) : "";
   };
   fill();
 
@@ -366,7 +366,7 @@ function buildLoanPanel(account) {
   if (terms) {
     const hint = document.createElement("p");
     hint.className = "loan-hint";
-    hint.textContent = "改利率或提前还款时，把起算日改到今天、本金改成当前剩余本金，否则会按原起算日重算整段计划。";
+    hint.textContent = "从今天起按新条款重算，之前的期次不变。";
     panel.insertBefore(hint, preview);
   }
 
