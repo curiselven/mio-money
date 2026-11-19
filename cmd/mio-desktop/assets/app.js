@@ -25,6 +25,7 @@ const tabs = [...document.querySelectorAll(".tab")];
 
 const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "对账单", manual: "手动" };
 const typeLabels = { cash: "现金", fund: "基金", stock: "股票", mixed: "混合", liability: "负债", other: "其他" };
+const principalRuleLabels = { new_schedule: "新月供本金", fixed_payment: "月供不变", old_schedule: "旧月供本金" };
 const views = {
   overview: {
     title: "总览",
@@ -284,7 +285,11 @@ function readHistoryForm(panel, prepayments) {
     if (!date || !rate) {
       return { error: "利率调整的生效日期和利率都要填写" };
     }
-    changes.push({ date, annual_rate: rate });
+    changes.push({
+      date,
+      annual_rate: rate,
+      principal_rule: row.querySelector(".rate-change-principal").value,
+    });
   }
   const values = {
     account_id: panel.dataset.accountId,
@@ -336,7 +341,7 @@ function renderLoanPeriods(panel, periods) {
     for (const text of [
       period.period,
       period.date,
-      `${period.annual_rate}%${period.rate_split ? " · 拆分计息" : ""}`,
+      `${period.annual_rate}%${period.rate_split ? " · 拆分计息" : ""}${period.principal_rule ? ` · ${principalRuleLabels[period.principal_rule] || period.principal_rule}` : ""}`,
       money(period.payment_cents),
       money(period.principal_cents),
       money(period.interest_cents),
@@ -504,6 +509,20 @@ function buildLoanPanel(account) {
     date.value = change.date || "";
     const newRate = inputElement("rate-change-rate", { type: "text", inputmode: "decimal", placeholder: "3.20", "aria-label": "新年利率" });
     newRate.value = change.annual_rate || "";
+    const principalRule = document.createElement("select");
+    principalRule.className = "rate-change-principal";
+    principalRule.setAttribute("aria-label", "当期本金算法");
+    for (const [value, label] of [
+      ["new_schedule", "当期本金：新月供"],
+      ["fixed_payment", "当期本金：月供不变"],
+      ["old_schedule", "当期本金：旧月供"],
+    ]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      principalRule.append(option);
+    }
+    principalRule.value = change.principal_rule || "new_schedule";
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "secondary rate-change-remove";
@@ -512,7 +531,7 @@ function buildLoanPanel(account) {
       row.remove();
       previewLoan(panel);
     });
-    row.append(date, newRate, remove);
+    row.append(date, newRate, principalRule, remove);
     ratesBox.append(row);
   };
   const setRateRows = (changes) => {

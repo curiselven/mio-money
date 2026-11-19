@@ -69,8 +69,9 @@ type GetLoanInput struct {
 }
 
 type LoanRateChangeInput struct {
-	Date       string `json:"date" jsonschema:"effective date, YYYY-MM-DD; applies from the first payment after it"`
-	AnnualRate string `json:"annual_rate" jsonschema:"annual rate as a decimal string, e.g. \"3.20\"; 0-30"`
+	Date          string `json:"date" jsonschema:"effective date, YYYY-MM-DD; applies from the first payment after it"`
+	AnnualRate    string `json:"annual_rate" jsonschema:"annual rate as a decimal string, e.g. \"3.20\"; 0-30"`
+	PrincipalRule string `json:"principal_rule,omitempty" jsonschema:"equal installment principal in the transition period: new_schedule (default), fixed_payment or old_schedule"`
 }
 
 type LoanPrepaymentInput struct {

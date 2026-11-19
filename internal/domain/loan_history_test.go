@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"context"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -59,8 +60,11 @@ func TestHistoryRateChangeRecomputesPayment(t *testing.T) {
 	if periods[5].PaymentCents == periods[6].PaymentCents {
 		t.Fatalf("payment should be recomputed: %+v / %+v", periods[5], periods[6])
 	}
-	for i := 6; i < 11; i++ {
-		if periods[i].PaymentCents != periods[6].PaymentCents {
+	if periods[6].PrincipalRule != domain.PrincipalNewSchedule {
+		t.Fatalf("transition rule = %+v", periods[6])
+	}
+	for i := 7; i < 11; i++ {
+		if periods[i].PaymentCents != periods[7].PaymentCents {
 			t.Fatalf("payment should stay fixed after the change: %+v", periods[i])
 		}
 	}
@@ -112,8 +116,8 @@ func TestHistoryMultipleRateChanges(t *testing.T) {
 	if periods[2].AnnualRate != "4.90" || periods[3].AnnualRate != "5.00" || periods[7].AnnualRate != "5.50" {
 		t.Fatalf("rates = %+v / %+v / %+v", periods[2], periods[3], periods[7])
 	}
-	for i := 3; i < 7; i++ {
-		if periods[i].PaymentCents != periods[3].PaymentCents {
+	for i := 4; i < 7; i++ {
+		if periods[i].PaymentCents != periods[4].PaymentCents {
 			t.Fatalf("payment should stay fixed between changes: %+v", periods[i])
 		}
 	}
@@ -484,6 +488,9 @@ func TestHistoryValidation(t *testing.T) {
 		{"duplicate change date", func(h *domain.LoanHistory) {
 			h.RateChanges = []domain.LoanRateChange{{Date: "2026-03-01", AnnualRate: "4.5"}, {Date: "2026-03-01", AnnualRate: "4.6"}}
 		}},
+		{"bad principal rule", func(h *domain.LoanHistory) {
+			h.RateChanges = []domain.LoanRateChange{{Date: "2026-03-01", AnnualRate: "4.5", PrincipalRule: "magic"}}
+		}},
 		{"bad prepay mode", func(h *domain.LoanHistory) {
 			h.Prepayments = []domain.LoanPrepayment{{Date: "2026-06-01", AmountCents: 100, Mode: "magic"}}
 		}},
@@ -616,4 +623,96 @@ func TestSyncHistoryWithoutAnchor(t *testing.T) {
 		latest.CashCents == nil || *latest.CashCents != -result.Accounts[0].BalanceCents {
 		t.Fatalf("latest = %+v, entry = %+v", latest, result.Accounts[0])
 	}
+}
+
+func testRoundCents(r *big.Rat) int64 {
+	num := new(big.Int).Abs(r.Num())
+	den := r.Denom()
+	q, rem := new(big.Int).QuoRem(num, den, new(big.Int))
+	if rem.Mul(rem, big.NewInt(2)).Cmp(den) >= 0 {
+		q.Add(q, big.NewInt(1))
+	}
+	if r.Sign() < 0 {
+		q.Neg(q)
+	}
+	return q.Int64()
+}
+
+func testMonthlyInterest(principal int64, annual string) int64 {
+	rate, _ := new(big.Rat).SetString(annual)
+	return testRoundCents(new(big.Rat).Mul(new(big.Rat).SetInt64(principal), rate.Quo(rate, big.NewRat(1200, 1))))
+}
+
+func testInstallmentPayment(principal int64, annual string, periods int) int64 {
+	rate, _ := new(big.Rat).SetString(annual)
+	monthly := rate.Quo(rate, big.NewRat(1200, 1))
+	factor := new(big.Rat).Add(big.NewRat(1, 1), monthly)
+	growth := new(big.Rat).SetInt64(1)
+	for i := 0; i < periods; i++ {
+		growth.Mul(growth, factor)
+	}
+	denom := new(big.Rat).Sub(growth, big.NewRat(1, 1))
+	payment := new(big.Rat).SetInt64(principal)
+	payment.Mul(payment, monthly)
+	payment.Mul(payment, growth)
+	return testRoundCents(payment.Quo(payment, denom))
+}
+
+// testTransitionRule checks the transition period against the three formulas
+// computed independently with the spec's numbers.
+func testTransitionRule(t *testing.T, rule domain.PrincipalRule) {
+	t.Helper()
+	h := testHistory()
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-06-25", AnnualRate: "5.00", PrincipalRule: rule}}
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bal := periods[5].BalanceCents
+	splitInterest := periods[6].InterestCents
+	oldPayment := periods[5].PaymentCents
+	newPayment := testInstallmentPayment(bal, "5.00", 6)
+	newInterest := testMonthlyInterest(bal, "5.00")
+	oldInterest := testMonthlyInterest(bal, "4.90")
+
+	var wantPrincipal, wantPayment int64
+	switch rule {
+	case domain.PrincipalNewSchedule:
+		wantPrincipal = newPayment - newInterest
+		wantPayment = wantPrincipal + splitInterest
+	case domain.PrincipalFixedPayment:
+		wantPayment = newPayment
+		wantPrincipal = newPayment - splitInterest
+	case domain.PrincipalOldSchedule:
+		wantPrincipal = oldPayment - oldInterest
+		wantPayment = wantPrincipal + splitInterest
+	}
+	period := periods[6]
+	if period.PrincipalRule != rule || !period.RateSplit {
+		t.Fatalf("period 7 = %+v", period)
+	}
+	if period.PrincipalCents != wantPrincipal || period.PaymentCents != wantPayment {
+		t.Fatalf("period 7 = %+v, want principal %d payment %d", period, wantPrincipal, wantPayment)
+	}
+	if period.BalanceCents != bal-wantPrincipal {
+		t.Fatalf("balance = %d, want %d", period.BalanceCents, bal-wantPrincipal)
+	}
+	if periods[7].PaymentCents != newPayment {
+		t.Fatalf("next payment = %d, want %d", periods[7].PaymentCents, newPayment)
+	}
+	if periods[len(periods)-1].BalanceCents != 0 {
+		t.Fatalf("last = %+v", periods[len(periods)-1])
+	}
+}
+
+func TestTransitionPrincipalNewSchedule(t *testing.T) {
+	testTransitionRule(t, domain.PrincipalNewSchedule)
+}
+
+func TestTransitionPrincipalFixedPayment(t *testing.T) {
+	testTransitionRule(t, domain.PrincipalFixedPayment)
+}
+
+func TestTransitionPrincipalOldSchedule(t *testing.T) {
+	testTransitionRule(t, domain.PrincipalOldSchedule)
 }

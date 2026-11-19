@@ -122,9 +122,10 @@ func TestToolsRoundTrip(t *testing.T) {
 		"total_periods":            12,
 		"method":                   "equal_installment",
 		"initial_annual_rate":      "4.90",
-		"rate_changes":             []map[string]any{{"date": "2026-06-25", "annual_rate": "5.00"}},
+		"rate_changes":             []map[string]any{{"date": "2026-06-25", "annual_rate": "5.00", "principal_rule": "fixed_payment"}},
 	}, &history)
-	if history.TotalPeriods != 12 || len(history.RateChanges) != 1 || history.DisbursementDate != "2026-01-01" {
+	if history.TotalPeriods != 12 || len(history.RateChanges) != 1 || history.DisbursementDate != "2026-01-01" ||
+		history.RateChanges[0].PrincipalRule != domain.PrincipalFixedPayment {
 		t.Fatalf("history = %+v", history)
 	}
 	var historyView domain.LoanHistoryView

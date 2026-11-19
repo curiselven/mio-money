@@ -169,7 +169,11 @@ func NewServer(svc *domain.Service) *sdk.Server {
 	}, func(ctx context.Context, _ *sdk.CallToolRequest, in SetLoanHistoryInput) (*sdk.CallToolResult, domain.LoanHistory, error) {
 		changes := make([]domain.LoanRateChange, len(in.RateChanges))
 		for i, c := range in.RateChanges {
-			changes[i] = domain.LoanRateChange{Date: c.Date, AnnualRate: c.AnnualRate}
+			changes[i] = domain.LoanRateChange{
+				Date:          c.Date,
+				AnnualRate:    c.AnnualRate,
+				PrincipalRule: domain.PrincipalRule(c.PrincipalRule),
+			}
 		}
 		prepayments := make([]domain.LoanPrepayment, len(in.Prepayments))
 		for i, p := range in.Prepayments {
