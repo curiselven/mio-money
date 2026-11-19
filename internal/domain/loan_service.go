@@ -136,6 +136,7 @@ func (s *Service) Loan(ctx context.Context, accountID string, includeSchedule bo
 }
 
 type LoanBriefing struct {
+	BalanceCents           int64     `json:"balance_cents"`
 	RemainingPeriods       int       `json:"remaining_periods"`
 	NextDate               string    `json:"next_date,omitempty"`
 	NextPaymentCents       int64     `json:"next_payment_cents,omitempty"`
@@ -156,6 +157,7 @@ func (s *Service) LoanBriefings(ctx context.Context) (map[string]LoanBriefing, e
 			return nil, err
 		}
 		briefing := LoanBriefing{
+			BalanceCents:           calc.BalanceCents,
 			RemainingPeriods:       calc.RemainingPeriods,
 			RemainingInterestCents: calc.RemainingInterestCents,
 			Terms:                  terms,
