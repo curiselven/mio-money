@@ -365,6 +365,7 @@ func TestHistorySplitInterestEqualPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 100000000 * (5.00*11 + 4.00*19) / 36000 = 363888.89 -> 363889.
 	if periods[0].InterestCents != 363_889 || !periods[0].RateSplit {
 		t.Fatalf("first period = %+v", periods[0])
 	}
