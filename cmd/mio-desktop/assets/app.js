@@ -556,7 +556,7 @@ function segControl(name, values, current) {
 }
 
 function segValue(form, name) {
-  return form.querySelector(`.seg.${name}`).dataset.value;
+  return form.querySelector(`.seg.${name.replace(/^\./, "")}`).dataset.value;
 }
 
 function setSeg(seg, value) {
