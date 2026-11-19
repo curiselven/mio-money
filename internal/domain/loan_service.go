@@ -230,6 +230,20 @@ func (s *Service) LoanHistory(ctx context.Context, accountID string) (*LoanHisto
 	return LoanHistoryAt(*history, s.today())
 }
 
+// ReconcileLoanHistory compares stored full-history terms with bank samples.
+// It is read-only; the caller decides whether to save the suggested terms.
+func (s *Service) ReconcileLoanHistory(ctx context.Context, accountID string, samples []BankPeriodSample) (*ReconcileResult, error) {
+	history, err := s.repo.GetLoanHistory(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if history == nil {
+		return nil, fmt.Errorf("account %s has no full-history loan plan", accountID)
+	}
+	result := ReconcileLoanHistory(*history, samples)
+	return &result, nil
+}
+
 type LoanBriefing struct {
 	BalanceCents           int64        `json:"balance_cents"`
 	RemainingPeriods       int          `json:"remaining_periods"`

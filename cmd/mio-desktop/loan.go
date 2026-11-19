@@ -126,3 +126,14 @@ func (s *LoanService) SaveHistory(in LoanHistoryFormInput) (*domain.LoanHistory,
 	}
 	return history, nil
 }
+
+type LoanReconcileInput struct {
+	Plan    LoanHistoryFormInput      `json:"plan"`
+	Samples []domain.BankPeriodSample `json:"samples"`
+}
+
+// Reconcile runs the wizard on the form's current (possibly unsaved) plan.
+func (s *LoanService) Reconcile(in LoanReconcileInput) (*domain.ReconcileResult, error) {
+	result := domain.ReconcileLoanHistory(in.Plan.history(), in.Samples)
+	return &result, nil
+}
