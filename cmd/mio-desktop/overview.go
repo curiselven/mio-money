@@ -18,14 +18,15 @@ func NewOverviewService(svc *domain.Service) *OverviewService {
 }
 
 type OverviewAccount struct {
-	AccountID    string             `json:"account_id"`
-	Name         string             `json:"name"`
-	Type         domain.AccountType `json:"type"`
-	AsOf         string             `json:"as_of,omitempty"`
-	ValueCents   int64              `json:"value_cents"`
-	SharePercent float64            `json:"share_percent"`
-	CashCents    *int64             `json:"cash_cents,omitempty"`
-	Items        []domain.Item      `json:"items"`
+	AccountID    string               `json:"account_id"`
+	Name         string               `json:"name"`
+	Type         domain.AccountType   `json:"type"`
+	AsOf         string               `json:"as_of,omitempty"`
+	ValueCents   int64                `json:"value_cents"`
+	SharePercent float64              `json:"share_percent"`
+	CashCents    *int64               `json:"cash_cents,omitempty"`
+	Items        []domain.Item        `json:"items"`
+	Loan         *domain.LoanBriefing `json:"loan,omitempty"`
 }
 
 type Overview struct {
@@ -60,6 +61,10 @@ func (s *OverviewService) Get() (*Overview, error) {
 		return nil, err
 	}
 	pending, err := s.svc.PendingReview(ctx)
+	if err != nil {
+		return nil, err
+	}
+	loans, err := s.svc.LoanBriefings(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +118,9 @@ func (s *OverviewService) Get() (*Overview, error) {
 			CashCents:    h.CashCents,
 			Items:        items,
 		})
+		if briefing, ok := loans[account.ID]; ok {
+			out.Accounts[len(out.Accounts)-1].Loan = &briefing
+		}
 	}
 	sort.SliceStable(out.Accounts, func(i, j int) bool {
 		if out.Accounts[i].ValueCents == out.Accounts[j].ValueCents {

@@ -244,6 +244,15 @@ function renderAccounts(accounts) {
     date.textContent = account.as_of ? `最新快照 ${account.as_of}` : "尚无已确认快照";
 
     summary.append(name, value, share, date);
+    if (account.loan) {
+      const loan = document.createElement("div");
+      loan.className = "account-loan";
+      const next = account.loan.next_date
+        ? `下期 ${account.loan.next_date} 月供 ${money(account.loan.next_payment_cents)}`
+        : "已还清";
+      loan.textContent = `还剩 ${account.loan.remaining_periods} 期 · ${next} · 剩余利息 ${money(account.loan.remaining_interest_cents)}`;
+      summary.append(loan);
+    }
     details.append(summary);
 
     const hasItems = account.items.length > 0 || account.cash_cents != null;
