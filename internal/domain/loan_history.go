@@ -35,6 +35,7 @@ type LoanPrepayment struct {
 type LoanHistory struct {
 	AccountID              string           `json:"account_id"`
 	OriginalPrincipalCents int64            `json:"original_principal_cents"`
+	DisbursementDate       string           `json:"disbursement_date,omitempty"`
 	FirstPaymentDate       string           `json:"first_payment_date"`
 	TotalPeriods           int              `json:"total_periods"`
 	Method                 LoanMethod       `json:"method"`
@@ -58,6 +59,14 @@ func validateLoanHistory(h *LoanHistory) error {
 	}
 	if err := validDate(h.FirstPaymentDate); err != nil {
 		return fmt.Errorf("first_payment_date: %w", err)
+	}
+	if h.DisbursementDate != "" {
+		if err := validDate(h.DisbursementDate); err != nil {
+			return fmt.Errorf("disbursement_date: %w", err)
+		}
+		if h.DisbursementDate >= h.FirstPaymentDate {
+			return errors.New("disbursement_date must be before first_payment_date")
+		}
 	}
 	if h.TotalPeriods <= 0 {
 		return errors.New("total_periods must be > 0")
@@ -145,6 +154,22 @@ func historyRateAt(changes []LoanRateChange, initial, date string) string {
 		rate = change.AnnualRate
 	}
 	return rate
+}
+
+// historyFirstPeriodInterest uses the domestic actual/360 convention:
+// principal * annual rate * actual days / 360. Expressed with the monthly rate
+// that is monthly * days / 30; switch the 30 to 365/12 * 30 here for actual/365.
+func historyFirstPeriodInterest(principal int64, monthly *big.Rat, days int) int64 {
+	interest := new(big.Rat).SetInt64(principal)
+	interest.Mul(interest, monthly)
+	interest.Mul(interest, big.NewRat(int64(days), 30))
+	return roundRatCents(interest)
+}
+
+func daysBetween(start, end string) int {
+	from, _ := time.Parse("2006-01-02", start)
+	to, _ := time.Parse("2006-01-02", end)
+	return int(to.Sub(from).Hours() / 24)
 }
 
 // periodsToPayoff simulates cents-rounded payments to see how many periods the
@@ -274,6 +299,9 @@ func LoanHistorySchedule(h LoanHistory) ([]LoanPeriod, error) {
 		if k == total || principal > balance {
 			principal = balance
 		}
+		if k == 1 && h.DisbursementDate != "" {
+			interest = historyFirstPeriodInterest(balance, monthly, daysBetween(h.DisbursementDate, date))
+		}
 		balance -= principal
 		periods = append(periods, LoanPeriod{
 			Number:         k,
@@ -307,7 +335,7 @@ func LoanHistoryAt(h LoanHistory, asOf string) (*LoanHistoryView, error) {
 	}
 	return &LoanHistoryView{
 		History:         h,
-		LoanCalculation: *calculationAt(periods, asOf, h.OriginalPrincipalCents),
+		LoanCalculation: *calculationAt(periods, asOf, h.OriginalPrincipalCents, h.Prepayments),
 		Periods:         periods,
 	}, nil
 }

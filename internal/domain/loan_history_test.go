@@ -237,6 +237,140 @@ func TestHistoryPaymentDayClampsToMonthEnd(t *testing.T) {
 	}
 }
 
+func TestHistoryDisbursementFirstInterest(t *testing.T) {
+	h := testHistory()
+	h.DisbursementDate = "2026-01-01"
+	h.FirstPaymentDate = "2026-02-19"
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 49 days at 4.9%: 100000000 * 49/12000 * 49/30 = 666944.44 -> 666944.
+	if periods[0].InterestCents != 666_944 {
+		t.Fatalf("first interest = %d", periods[0].InterestCents)
+	}
+	if periods[0].PrincipalCents != 8_147_833 {
+		t.Fatalf("first principal = %d", periods[0].PrincipalCents)
+	}
+	if periods[0].PaymentCents != 8_147_833+666_944 {
+		t.Fatalf("first payment = %d", periods[0].PaymentCents)
+	}
+	if periods[1].PaymentCents != 8_556_166 {
+		t.Fatalf("second payment = %d", periods[1].PaymentCents)
+	}
+	if periods[1].BalanceCents == periods[0].BalanceCents {
+		t.Fatalf("balance must keep falling: %+v", periods[1])
+	}
+}
+
+func TestHistoryDisbursementShortFirstPeriod(t *testing.T) {
+	h := testHistory()
+	h.DisbursementDate = "2026-01-10"
+	h.FirstPaymentDate = "2026-01-20"
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 10 days: 100000000 * 49/12000 * 10/30 = 136111.11 -> 136111.
+	if periods[0].InterestCents != 136_111 {
+		t.Fatalf("first interest = %d", periods[0].InterestCents)
+	}
+}
+
+func TestHistoryDisbursementDoesNotChangeBalances(t *testing.T) {
+	plain := testHistory()
+	withDate := testHistory()
+	withDate.DisbursementDate = "2026-01-01"
+	plainPeriods, err := domain.LoanHistorySchedule(plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	datePeriods, err := domain.LoanHistorySchedule(withDate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range plainPeriods {
+		if plainPeriods[i].BalanceCents != datePeriods[i].BalanceCents ||
+			plainPeriods[i].PrincipalCents != datePeriods[i].PrincipalCents {
+			t.Fatalf("period %d differs: %+v / %+v", i+1, plainPeriods[i], datePeriods[i])
+		}
+		if i > 0 && plainPeriods[i].PaymentCents != datePeriods[i].PaymentCents {
+			t.Fatalf("period %d payment differs: %+v / %+v", i+1, plainPeriods[i], datePeriods[i])
+		}
+	}
+	if plainPeriods[0].PaymentCents == datePeriods[0].PaymentCents {
+		t.Fatalf("first payment should use day-count interest")
+	}
+}
+
+func TestHistoryDisbursementEqualPrincipal(t *testing.T) {
+	h := testHistory()
+	h.Method = domain.LoanEqualPrincipal
+	h.DisbursementDate = "2026-01-01"
+	h.FirstPaymentDate = "2026-02-19"
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if periods[0].PrincipalCents != 8_333_333 || periods[0].InterestCents != 666_944 {
+		t.Fatalf("first = %+v", periods[0])
+	}
+}
+
+func TestHistoryDisbursementValidation(t *testing.T) {
+	for _, date := range []string{"2026-01-20", "2026-01-21"} {
+		h := testHistory()
+		h.DisbursementDate = date
+		if _, err := domain.LoanHistorySchedule(h); err == nil {
+			t.Fatalf("disbursement %s should be rejected", date)
+		}
+	}
+}
+
+func TestHistoryPaidTotals(t *testing.T) {
+	h := testHistory()
+	view, err := domain.LoanHistoryAt(h, "2026-06-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var principal, interest int64
+	for _, p := range view.Periods[:6] {
+		principal += p.PrincipalCents
+		interest += p.InterestCents
+	}
+	if view.PaidPrincipalCents != principal || view.PaidInterestCents != interest {
+		t.Fatalf("paid = %+v", view.LoanCalculation)
+	}
+	if view.PaidTotalCents != principal+interest || view.PrepaidCents != 0 {
+		t.Fatalf("total = %+v", view.LoanCalculation)
+	}
+}
+
+func TestHistoryPaidTotalsWithRateChangeAndPrepayment(t *testing.T) {
+	h := testHistory()
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-04-01", AnnualRate: "5.00"}}
+	h.Prepayments = []domain.LoanPrepayment{
+		{Date: "2026-06-25", AmountCents: 30_000_000, Mode: domain.PrepayShortenPeriods},
+	}
+	before, err := domain.LoanHistoryAt(h, "2026-06-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.PrepaidCents != 0 || before.PaidTotalCents != before.PaidPrincipalCents+before.PaidInterestCents {
+		t.Fatalf("before prepayment = %+v", before.LoanCalculation)
+	}
+	after, err := domain.LoanHistoryAt(h, "2026-06-25")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.PrepaidCents != 30_000_000 || after.PaidPeriods != before.PaidPeriods {
+		t.Fatalf("after prepayment = %+v", after.LoanCalculation)
+	}
+	if after.PaidTotalCents != after.PaidPrincipalCents+after.PaidInterestCents+after.PrepaidCents {
+		t.Fatalf("total = %+v", after.LoanCalculation)
+	}
+}
+
 func TestHistoryValidation(t *testing.T) {
 	cases := []struct {
 		name   string
