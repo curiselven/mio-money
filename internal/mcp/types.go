@@ -98,3 +98,16 @@ type GetLoanHistoryInput struct {
 	To        int    `json:"to,omitempty" jsonschema:"optional last period number (1-based)"`
 	Schedule  bool   `json:"schedule,omitempty" jsonschema:"include every period; otherwise use from/to"`
 }
+
+type BankPeriodSampleInput struct {
+	Date           string `json:"date" jsonschema:"bank repayment date, YYYY-MM-DD"`
+	PaymentCents   int64  `json:"payment_cents" jsonschema:"amount actually deducted, integer cents"`
+	PrincipalCents int64  `json:"principal_cents" jsonschema:"principal part, integer cents"`
+	InterestCents  int64  `json:"interest_cents" jsonschema:"interest part, integer cents"`
+	BalanceCents   *int64 `json:"balance_cents,omitempty" jsonschema:"optional remaining principal after this period, integer cents"`
+}
+
+type ReconcileLoanHistoryInput struct {
+	AccountID string                  `json:"account_id" jsonschema:"liability account id"`
+	Samples   []BankPeriodSampleInput `json:"samples" jsonschema:"bank statements to compare; use periods around rate changes"`
+}

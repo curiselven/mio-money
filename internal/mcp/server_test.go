@@ -40,6 +40,7 @@ func TestToolsRoundTrip(t *testing.T) {
 		"submit_snapshot", "confirm_snapshot", "reject_snapshot", "undo_snapshot", "upsert_account",
 		"list_accounts", "get_holdings", "get_net_worth", "get_history", "list_pending",
 		"set_loan_terms", "get_loan", "set_loan_history", "get_loan_history",
+		"reconcile_loan_history",
 	}
 	if len(tools.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(tools.Tools), len(want))
@@ -137,6 +138,23 @@ func TestToolsRoundTrip(t *testing.T) {
 	call(t, session, "get_loan_history", map[string]any{"account_id": liability.ID, "from": 2, "to": 3}, &sliced)
 	if len(sliced.Periods) != 2 || sliced.Periods[0].Number != 2 {
 		t.Fatalf("sliced = %+v", sliced.Periods)
+	}
+
+	period := historyView.Periods[6]
+	balance := period.BalanceCents
+	var reconciled domain.ReconcileResult
+	call(t, session, "reconcile_loan_history", map[string]any{
+		"account_id": liability.ID,
+		"samples": []map[string]any{{
+			"date":            period.Date,
+			"payment_cents":   period.PaymentCents,
+			"principal_cents": period.PrincipalCents,
+			"interest_cents":  period.InterestCents,
+			"balance_cents":   balance,
+		}},
+	}, &reconciled)
+	if reconciled.Matched != 1 || len(reconciled.Samples) != 1 || !reconciled.Samples[0].Matched {
+		t.Fatalf("reconciled = %+v", reconciled)
 	}
 }
 

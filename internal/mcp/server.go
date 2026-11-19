@@ -224,5 +224,26 @@ func NewServer(svc *domain.Service) *sdk.Server {
 		return nil, *view, nil
 	})
 
+	sdk.AddTool(server, &sdk.Tool{
+		Name:        "reconcile_loan_history",
+		Description: "Read-only reconciliation: compare a full-history plan with bank samples (payment, principal, interest, optional balance) around rate changes, and suggest corrected rate-change dates and principal rules. Returns the suggested plan as applied_history; save it with set_loan_history after the user agrees. Samples can be read by an Agent from bank app screenshots.",
+	}, func(ctx context.Context, _ *sdk.CallToolRequest, in ReconcileLoanHistoryInput) (*sdk.CallToolResult, domain.ReconcileResult, error) {
+		samples := make([]domain.BankPeriodSample, len(in.Samples))
+		for i, sample := range in.Samples {
+			samples[i] = domain.BankPeriodSample{
+				Date:           sample.Date,
+				PaymentCents:   sample.PaymentCents,
+				PrincipalCents: sample.PrincipalCents,
+				InterestCents:  sample.InterestCents,
+				BalanceCents:   sample.BalanceCents,
+			}
+		}
+		result, err := svc.ReconcileLoanHistory(ctx, in.AccountID, samples)
+		if err != nil {
+			return nil, domain.ReconcileResult{}, err
+		}
+		return nil, *result, nil
+	})
+
 	return server
 }
