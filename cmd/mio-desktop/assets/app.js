@@ -336,7 +336,7 @@ function renderLoanPeriods(panel, periods) {
     for (const text of [
       period.period,
       period.date,
-      `${period.annual_rate}%`,
+      `${period.annual_rate}%${period.rate_split ? " · 拆分计息" : ""}`,
       money(period.payment_cents),
       money(period.principal_cents),
       money(period.interest_cents),

@@ -79,6 +79,9 @@ func TestHistoryRateChangeOnPaymentDateStartsNextPeriod(t *testing.T) {
 	if periods[5].AnnualRate != "4.90" || periods[6].AnnualRate != "5.00" {
 		t.Fatalf("periods = %+v / %+v", periods[5], periods[6])
 	}
+	if periods[5].RateSplit || periods[6].RateSplit {
+		t.Fatalf("payment-date change must not split: %+v / %+v", periods[5], periods[6])
+	}
 }
 
 func TestHistoryRateChangeBetweenPaymentsStartsAtNextPayment(t *testing.T) {
@@ -324,6 +327,102 @@ func TestHistoryDisbursementValidation(t *testing.T) {
 		if _, err := domain.LoanHistorySchedule(h); err == nil {
 			t.Fatalf("disbursement %s should be rejected", date)
 		}
+	}
+}
+
+func TestHistorySplitInterestBankExample(t *testing.T) {
+	h := testHistory()
+	h.OriginalPrincipalCents = 86_121_363
+	h.InitialAnnualRate = "5.88"
+	h.FirstPaymentDate = "2026-01-20"
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-01", AnnualRate: "5.73"}}
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 19 days new + 11 days old: 86121363 * (5.88*11 + 5.73*19) / 36000.
+	if periods[0].InterestCents != 415_177 {
+		t.Fatalf("first interest = %d, want 415177", periods[0].InterestCents)
+	}
+	if !periods[0].RateSplit || periods[0].AnnualRate != "5.73" {
+		t.Fatalf("first period = %+v", periods[0])
+	}
+}
+
+func TestHistorySplitInterestEqualPrincipal(t *testing.T) {
+	h := testHistory()
+	h.OriginalPrincipalCents = 86_121_363
+	h.InitialAnnualRate = "5.88"
+	h.FirstPaymentDate = "2026-01-20"
+	h.TotalPeriods = 12
+	h.Method = domain.LoanEqualPrincipal
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-01", AnnualRate: "5.73"}}
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if periods[0].InterestCents != 415_177 || !periods[0].RateSplit {
+		t.Fatalf("first period = %+v", periods[0])
+	}
+	if periods[0].PrincipalCents != 7_176_780 {
+		t.Fatalf("first principal = %d", periods[0].PrincipalCents)
+	}
+}
+
+func TestHistorySplitInterestMultipleChanges(t *testing.T) {
+	h := testHistory()
+	h.RateChanges = []domain.LoanRateChange{
+		{Date: "2026-03-05", AnnualRate: "5.50"},
+		{Date: "2026-03-12", AnnualRate: "5.20"},
+	}
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Period 3 ends 2026-03-20; window 02-18..03-20 is 15 + 7 + 8 = 30 days.
+	if !periods[2].RateSplit {
+		t.Fatalf("period 3 = %+v", periods[2])
+	}
+	// Balance before period 3 is 83671064; 83671064 * (4.90*15 + 5.50*7 + 5.20*8) / 36000.
+	if periods[2].InterestCents != 356_997 {
+		t.Fatalf("period 3 interest = %d", periods[2].InterestCents)
+	}
+}
+
+func TestHistoryRateChangeOnPreviousPaymentDateUsesFullNewRate(t *testing.T) {
+	h := testHistory()
+	h.FirstPaymentDate = "2026-02-20"
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-02-20", AnnualRate: "5.00"}}
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if periods[0].RateSplit || periods[0].AnnualRate != "4.90" {
+		t.Fatalf("period 1 = %+v", periods[0])
+	}
+	// Period 2 is 2026-03-20; its previous payment date equals the change date,
+	// so the whole period uses the new rate, not a 2-day/28-day split.
+	if periods[1].RateSplit || periods[1].AnnualRate != "5.00" {
+		t.Fatalf("period 2 = %+v", periods[1])
+	}
+	balance := periods[0].BalanceCents
+	if periods[1].InterestCents != (balance*50+6000)/12000 {
+		t.Fatalf("period 2 interest = %d, balance = %d", periods[1].InterestCents, balance)
+	}
+}
+
+func TestHistoryDisbursementIgnoresSplit(t *testing.T) {
+	h := testHistory()
+	h.DisbursementDate = "2026-01-01"
+	h.FirstPaymentDate = "2026-01-20"
+	h.RateChanges = []domain.LoanRateChange{{Date: "2026-01-10", AnnualRate: "5.00"}}
+	periods, err := domain.LoanHistorySchedule(h)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Actual 19 days at the period's new rate: 100000000 * 50/12000 * 19/30.
+	if periods[0].InterestCents != 263_889 || periods[0].RateSplit {
+		t.Fatalf("first period = %+v", periods[0])
 	}
 }
 
