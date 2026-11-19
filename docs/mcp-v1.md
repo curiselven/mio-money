@@ -79,6 +79,7 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 | `list_pending()` | 待确认的快照 |
 | `get_loan(account_id, schedule?)` | 贷款条款 + 当前剩余本金、剩余期数、下期月供/本金/利息、剩余总利息；`schedule:true` 返回未来全部期次 |
 | `get_loan_history(account_id, from?, to?, schedule?)` | 完整历史计划的当前状态（含已还本金/利息/合计/提前还款合计）与每期明细；`from`/`to` 按期号（1 起）切片，`schedule:true` 返回全部 |
+| `reconcile_loan_history(account_id, samples)` | 只读对账：用银行 App 抄来的几期月供/本金/利息（可选余额）反推利率调整的生效日与当期本金算法，返回每期是否对上、差额和建议后的条款 |
 
 ## V1 不做
 
@@ -112,6 +113,18 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 - 每条利率调整可带 `principal_rule`（只影响等额本息的调整当期）：`new_schedule`（默认，本金 = 新月供 − 新月利率整月利息）、`fixed_payment`（实扣 = 新月供）、`old_schedule`（本金 = 旧月供 − 旧月利率整月利息）。下期起都使用新月供；等额本金忽略该字段。旧数据迁移后统一为 `new_schedule`。
 - 提前还款支持 `shorten_periods`（月供不变、缩短期限）和 `reduce_payment`（期限不变、重算月供）；日期在两期之间时在下一期生效，与还款日同日时在当期月供后扣减。
 - 可选 `disbursement_date`（放款日）必须早于首期还款日。填了它时，第 1 期利息按「实际天数/360」计算（本金 × 年利率 × 天数 / 360，四舍五入到分）；等额本息第 1 期本金仍按整月规则拆分，所以只有第 1 期还款额变化，之后各期与余额不变。不填则与整月口径一致。
+
+### 贷款对账
+
+`reconcile_loan_history` 不写库。Agent 可以从银行 App 截图读出利率调整前后的几期数字，传入 `samples`：
+
+```json
+{"account_id": "acc_...", "samples": [
+  {"date": "2026-01-20", "payment_cents": 400000, "principal_cents": 100000, "interest_cents": 300000}
+]}
+```
+
+对落在利率调整当期的样本，会在原生效日 ±10 天（限制在该期 `prev < d <= cur`）和三种 `principal_rule` 中搜索，优先不改日期、其次用默认算法；多个样本按时间顺序处理，前一处修正会影响后面的余额。返回的建议通过 `set_loan_history` 由用户确认后写入。
 - `--loan-sync` 与桌面/MCP 启动时的自动同步会按计划从首期补写已过扣款日的负债快照。
 
 ## 已定（2026-11-18）

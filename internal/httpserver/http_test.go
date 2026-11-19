@@ -77,8 +77,8 @@ func TestStreamableHTTPClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 14 {
-		t.Fatalf("got %d tools, want 14", len(tools.Tools))
+	if len(tools.Tools) != 15 {
+		t.Fatalf("got %d tools, want 15", len(tools.Tools))
 	}
 	if _, err := session.CallTool(ctx, &sdk.CallToolParams{Name: "list_accounts", Arguments: map[string]any{}}); err != nil {
 		t.Fatalf("list_accounts: %v", err)
