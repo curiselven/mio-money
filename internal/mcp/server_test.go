@@ -39,7 +39,7 @@ func TestToolsRoundTrip(t *testing.T) {
 	want := []string{
 		"submit_snapshot", "confirm_snapshot", "reject_snapshot", "undo_snapshot", "upsert_account",
 		"list_accounts", "get_holdings", "get_net_worth", "get_history", "list_pending",
-		"set_loan_terms", "get_loan",
+		"set_loan_terms", "get_loan", "set_loan_history", "get_loan_history",
 	}
 	if len(tools.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(tools.Tools), len(want))
@@ -111,6 +111,30 @@ func TestToolsRoundTrip(t *testing.T) {
 	call(t, session, "get_loan", map[string]any{"account_id": liability.ID, "schedule": true}, &loan)
 	if loan.BalanceCents <= 0 || loan.RemainingPeriods <= 0 || len(loan.Schedule) != 240 || loan.Next == nil {
 		t.Fatalf("loan = %+v", loan)
+	}
+
+	var history domain.LoanHistory
+	call(t, session, "set_loan_history", map[string]any{
+		"account_id":               liability.ID,
+		"original_principal_cents": 100_000_000,
+		"first_payment_date":       "2026-01-20",
+		"total_periods":            12,
+		"method":                   "equal_installment",
+		"initial_annual_rate":      "4.90",
+		"rate_changes":             []map[string]any{{"date": "2026-06-25", "annual_rate": "5.00"}},
+	}, &history)
+	if history.TotalPeriods != 12 || len(history.RateChanges) != 1 {
+		t.Fatalf("history = %+v", history)
+	}
+	var historyView domain.LoanHistoryView
+	call(t, session, "get_loan_history", map[string]any{"account_id": liability.ID, "schedule": true}, &historyView)
+	if len(historyView.Periods) != 12 || historyView.PaidPeriods == 0 {
+		t.Fatalf("history view = %+v", historyView.LoanCalculation)
+	}
+	var sliced domain.LoanHistoryView
+	call(t, session, "get_loan_history", map[string]any{"account_id": liability.ID, "from": 2, "to": 3}, &sliced)
+	if len(sliced.Periods) != 2 || sliced.Periods[0].Number != 2 {
+		t.Fatalf("sliced = %+v", sliced.Periods)
 	}
 }
 

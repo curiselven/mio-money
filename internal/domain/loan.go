@@ -39,6 +39,7 @@ type LoanTerms struct {
 type LoanPeriod struct {
 	Number         int    `json:"period"`
 	Date           string `json:"date"`
+	AnnualRate     string `json:"annual_rate,omitempty"`
 	PaymentCents   int64  `json:"payment_cents"`
 	PrincipalCents int64  `json:"principal_cents"`
 	InterestCents  int64  `json:"interest_cents"`
@@ -49,6 +50,7 @@ type LoanPeriod struct {
 type LoanCalculation struct {
 	AsOf                   string      `json:"as_of"`
 	BalanceCents           int64       `json:"balance_cents"`
+	PaidPeriods            int         `json:"paid_periods"`
 	RemainingPeriods       int         `json:"remaining_periods"`
 	Next                   *LoanPeriod `json:"next_payment,omitempty"`
 	RemainingInterestCents int64       `json:"remaining_interest_cents"`
@@ -185,6 +187,7 @@ func LoanSchedule(t LoanTerms) ([]LoanPeriod, error) {
 			periods = append(periods, LoanPeriod{
 				Number:         i + 1,
 				Date:           dates[i],
+				AnnualRate:     t.AnnualRate,
 				PaymentCents:   principal + interest,
 				PrincipalCents: principal,
 				InterestCents:  interest,
@@ -208,6 +211,7 @@ func LoanSchedule(t LoanTerms) ([]LoanPeriod, error) {
 		periods = append(periods, LoanPeriod{
 			Number:         i + 1,
 			Date:           dates[i],
+			AnnualRate:     t.AnnualRate,
 			PaymentCents:   principal + interest,
 			PrincipalCents: principal,
 			InterestCents:  interest,
@@ -227,7 +231,12 @@ func LoanAt(t LoanTerms, asOf string) (*LoanCalculation, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &LoanCalculation{AsOf: asOf, BalanceCents: t.AnchorPrincipalCents, RemainingPeriods: len(periods)}
+	return calculationAt(periods, asOf, t.AnchorPrincipalCents), nil
+}
+
+// calculationAt treats payment dates on or before asOf as already paid.
+func calculationAt(periods []LoanPeriod, asOf string, principal int64) *LoanCalculation {
+	out := &LoanCalculation{AsOf: asOf, BalanceCents: principal, RemainingPeriods: len(periods)}
 	paid := 0
 	for _, p := range periods {
 		if p.Date > asOf {
@@ -237,12 +246,13 @@ func LoanAt(t LoanTerms, asOf string) (*LoanCalculation, error) {
 		paid++
 		out.BalanceCents = p.BalanceCents
 	}
+	out.PaidPeriods = paid
 	out.RemainingPeriods -= paid
 	if paid < len(periods) {
 		next := periods[paid]
 		out.Next = &next
 	}
-	return out, nil
+	return out
 }
 
 // PreviewLoan validates the terms and returns the numbers shown in the form.
