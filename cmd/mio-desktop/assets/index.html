@@ -3,22 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mio · 待确认</title>
+  <title>Mio · 总览</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header class="topbar">
     <div>
       <p class="eyebrow">Mio Money</p>
-      <h1>待确认快照</h1>
-      <p class="subtitle">被异常规则拦下的记录，确认生效后才会写入正式数据。</p>
+      <h1 id="title">总览</h1>
+      <p id="subtitle" class="subtitle">只统计已确认快照。</p>
     </div>
     <button id="refresh" class="secondary" type="button">刷新</button>
   </header>
 
+  <nav class="tabs" role="tablist" aria-label="页面">
+    <button id="tab-overview" class="tab active" type="button" role="tab" data-view="overview" aria-selected="true">总览</button>
+    <button id="tab-pending" class="tab" type="button" role="tab" data-view="pending" aria-selected="false">
+      待确认<span id="pending-count" class="count" hidden></span>
+    </button>
+  </nav>
+
   <div id="status" class="status" role="status" hidden></div>
-  <main id="list" class="list"></main>
-  <div id="empty" class="empty" hidden>没有需要你确认的快照</div>
+
+  <main id="overview-view" class="view">
+    <section id="overview-empty" class="card guide" hidden>
+      <h2>还没有资产数据</h2>
+      <p>让 Agent 通过 MCP 的 <code>submit_snapshot</code> 写入第一份快照；没有命中异常时让 Agent 用 <code>confirm_snapshot</code> 确认，命中异常的记录会在「待确认」里等你处理。</p>
+    </section>
+
+    <div id="overview-body">
+      <section class="card hero">
+        <p class="hero-label">净资产 <span id="net-asof" class="hero-date"></span></p>
+        <p id="net-worth" class="hero-value">¥0.00</p>
+        <p id="net-change" class="change" hidden></p>
+        <dl class="hero-split">
+          <div><dt>资产</dt><dd id="assets">¥0.00</dd></div>
+          <div><dt>负债</dt><dd id="liabilities">¥0.00</dd></div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">账户</h2>
+        <div id="accounts" class="accounts"></div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">净资产走势</h2>
+        <div id="chart" class="chart"></div>
+      </section>
+    </div>
+  </main>
+
+  <section id="pending-view" class="view" hidden>
+    <main id="list" class="list"></main>
+    <div id="empty" class="empty" hidden>没有需要你确认的快照</div>
+  </section>
 
   <template id="card">
     <article class="card">

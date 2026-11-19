@@ -28,17 +28,19 @@ func main() {
 	}
 	defer st.Close()
 
-	pending := NewPendingService(domain.NewService(st, *maxChange/100))
+	svc := domain.NewService(st, *maxChange/100)
+	pending := NewPendingService(svc)
+	overview := NewOverviewService(svc)
 	app := application.New(application.Options{
 		Name:     "Mio",
-		Services: []application.Service{application.NewService(pending)},
+		Services: []application.Service{application.NewService(pending), application.NewService(overview)},
 		Assets: application.AssetOptions{
 			Handler:        application.AssetFileServerFS(assets),
 			DisableLogging: true,
 		},
 	})
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "Mio · 待确认",
+		Title:  "Mio · 总览",
 		URL:    "/",
 		Width:  900,
 		Height: 760,
