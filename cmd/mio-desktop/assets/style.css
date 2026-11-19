@@ -422,6 +422,20 @@ button.loan-edit {
   font-size: 12px;
 }
 
+button.loan-setup {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #98a2b3;
+  font-weight: 400;
+}
+
+button.loan-setup:hover {
+  color: #2f6fed;
+  text-decoration: underline;
+}
+
 .loan-panel {
   margin: 0 14px 14px;
   padding-top: 12px;
