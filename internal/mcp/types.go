@@ -52,3 +52,18 @@ type HoldingsOutput struct {
 type PendingOutput struct {
 	Snapshots []*domain.Snapshot `json:"snapshots"`
 }
+
+type SetLoanTermsInput struct {
+	AccountID            string `json:"account_id" jsonschema:"liability account id"`
+	AnchorDate           string `json:"anchor_date" jsonschema:"start date of these terms, YYYY-MM-DD"`
+	AnchorPrincipalCents int64  `json:"anchor_principal_cents" jsonschema:"remaining principal at anchor_date, integer cents, positive"`
+	AnnualRate           string `json:"annual_rate" jsonschema:"annual interest rate as a decimal string, e.g. \"3.10\" for 3.10%; 0-30"`
+	Method               string `json:"method" jsonschema:"equal_installment (等额本息) or equal_principal (等额本金)"`
+	PaymentDay           int    `json:"payment_day" jsonschema:"monthly payment day, 1-28"`
+	RemainingPeriods     int    `json:"remaining_periods" jsonschema:"number of payments remaining after anchor_date"`
+}
+
+type GetLoanInput struct {
+	AccountID string `json:"account_id" jsonschema:"liability account id"`
+	Schedule  bool   `json:"schedule,omitempty" jsonschema:"include every future payment"`
+}

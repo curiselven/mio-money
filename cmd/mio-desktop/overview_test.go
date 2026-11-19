@@ -160,3 +160,41 @@ func TestOverviewAccountShares(t *testing.T) {
 		t.Fatalf("single history point must not show a change: %+v", got)
 	}
 }
+
+func TestOverviewShowsLoanBriefing(t *testing.T) {
+	ctx := context.Background()
+	overview, svc := newOverview(t)
+	loanAccount, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "测试房贷", Type: domain.AccountLiability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetLoanTerms(ctx, domain.SetLoanTermsInput{
+		AccountID: loanAccount.ID, AnchorDate: "2026-01-01", AnchorPrincipalCents: 100_000_000,
+		AnnualRate: "3.10", Method: domain.LoanEqualInstallment, PaymentDay: 20, RemainingPeriods: 240,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := overview.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Accounts) != 1 {
+		t.Fatalf("accounts = %+v", got.Accounts)
+	}
+	loan := got.Accounts[0].Loan
+	if loan == nil {
+		t.Fatal("loan briefing is missing")
+	}
+	expected, err := svc.Loan(ctx, loanAccount.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loan.RemainingPeriods != expected.RemainingPeriods ||
+		loan.RemainingInterestCents != expected.RemainingInterestCents {
+		t.Fatalf("loan = %+v, expected = %+v", loan, expected)
+	}
+	if expected.Next != nil && (loan.NextDate != expected.Next.Date || loan.NextPaymentCents != expected.Next.PaymentCents) {
+		t.Fatalf("loan = %+v, expected = %+v", loan, expected)
+	}
+}

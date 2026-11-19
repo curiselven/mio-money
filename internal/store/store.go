@@ -79,6 +79,12 @@ func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
 }
 
 func (s *Store) migrate(ctx context.Context) error {
+	// SQLite cannot toggle foreign keys inside a transaction and migrations may
+	// rebuild tables (0002 rebuilds snapshots). Enforce again afterwards.
+	if _, err := s.db.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return err
+	}
+	defer func() { _, _ = s.db.ExecContext(context.Background(), `PRAGMA foreign_keys=ON`) }()
 	if _, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_version (
 		version    INTEGER PRIMARY KEY,
 		applied_at TEXT NOT NULL
@@ -119,6 +125,15 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+	}
+	rows, err := s.db.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return err
+	}
+	dangling := rows.Next()
+	rows.Close()
+	if dangling {
+		return errors.New("migration left dangling foreign keys")
 	}
 	return nil
 }

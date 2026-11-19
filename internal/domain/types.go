@@ -49,11 +49,12 @@ const (
 	SourceMCP        Source = "mcp"
 	SourceStatement  Source = "statement"
 	SourceManual     Source = "manual"
+	SourceLoan       Source = "loan_schedule"
 )
 
 func (s Source) Valid() bool {
 	switch s {
-	case SourceScreenshot, SourceMCP, SourceStatement, SourceManual:
+	case SourceScreenshot, SourceMCP, SourceStatement, SourceManual, SourceLoan:
 		return true
 	}
 	return false

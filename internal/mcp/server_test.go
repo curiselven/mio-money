@@ -39,6 +39,7 @@ func TestToolsRoundTrip(t *testing.T) {
 	want := []string{
 		"submit_snapshot", "confirm_snapshot", "reject_snapshot", "undo_snapshot", "upsert_account",
 		"list_accounts", "get_holdings", "get_net_worth", "get_history", "list_pending",
+		"set_loan_terms", "get_loan",
 	}
 	if len(tools.Tools) != len(want) {
 		t.Fatalf("got %d tools, want %d", len(tools.Tools), len(want))
@@ -89,6 +90,27 @@ func TestToolsRoundTrip(t *testing.T) {
 	call(t, session, "get_net_worth", map[string]any{"as_of": "2026-11-01"}, &nw)
 	if nw.NetCents != 300_000 {
 		t.Fatalf("net worth = %+v", nw)
+	}
+
+	var liability domain.Account
+	call(t, session, "upsert_account", map[string]any{"name": "示例房贷", "type": "liability"}, &liability)
+	var terms domain.LoanTerms
+	call(t, session, "set_loan_terms", map[string]any{
+		"account_id":             liability.ID,
+		"anchor_date":            "2026-01-01",
+		"anchor_principal_cents": 100_000_000,
+		"annual_rate":            "3.10",
+		"method":                 "equal_installment",
+		"payment_day":            20,
+		"remaining_periods":      240,
+	}, &terms)
+	if terms.AccountID != liability.ID || terms.Method != domain.LoanEqualInstallment {
+		t.Fatalf("terms = %+v", terms)
+	}
+	var loan domain.LoanView
+	call(t, session, "get_loan", map[string]any{"account_id": liability.ID, "schedule": true}, &loan)
+	if loan.BalanceCents <= 0 || loan.RemainingPeriods <= 0 || len(loan.Schedule) != 240 || loan.Next == nil {
+		t.Fatalf("loan = %+v", loan)
 	}
 }
 
