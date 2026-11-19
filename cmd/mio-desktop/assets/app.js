@@ -638,6 +638,15 @@ function renderAccounts(accounts) {
     if (account.type === "liability") {
       const row = document.createElement("div");
       row.className = "account-loan-row";
+      panel = buildLoanPanel(account);
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.className = "secondary loan-edit";
+      edit.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openLoanPanel(details, panel);
+      });
       if (account.loan) {
         const loan = document.createElement("span");
         loan.className = "account-loan";
@@ -645,19 +654,13 @@ function renderAccounts(accounts) {
           ? `下期 ${account.loan.next_date} 月供 ${money(account.loan.next_payment_cents)}`
           : "已还清";
         loan.textContent = `还剩 ${account.loan.remaining_periods} 期 · ${next} · 剩余利息 ${money(account.loan.remaining_interest_cents)}`;
-        row.append(loan);
+        edit.textContent = "修改还款计划";
+        row.append(loan, edit);
+      } else {
+        edit.className += " loan-setup";
+        edit.textContent = "设为贷款…";
+        row.append(edit);
       }
-      panel = buildLoanPanel(account);
-      const edit = document.createElement("button");
-      edit.type = "button";
-      edit.className = "secondary loan-edit";
-      edit.textContent = account.loan ? "修改还款计划" : "设置还款计划";
-      edit.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        openLoanPanel(details, panel);
-      });
-      row.append(edit);
       summary.append(row);
     }
     details.append(summary);
