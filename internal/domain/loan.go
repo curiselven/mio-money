@@ -40,6 +40,7 @@ type LoanPeriod struct {
 	Number         int    `json:"period"`
 	Date           string `json:"date"`
 	AnnualRate     string `json:"annual_rate,omitempty"`
+	RateSplit      bool   `json:"rate_split,omitempty"`
 	PaymentCents   int64  `json:"payment_cents"`
 	PrincipalCents int64  `json:"principal_cents"`
 	InterestCents  int64  `json:"interest_cents"`
