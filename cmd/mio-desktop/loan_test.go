@@ -103,3 +103,92 @@ func TestLoanSaveWritesTermsAuditAndSync(t *testing.T) {
 		t.Fatalf("desktop audit entry missing: %+v", audit)
 	}
 }
+
+func historyFormInput(accountID string) LoanHistoryFormInput {
+	return LoanHistoryFormInput{
+		AccountID:              accountID,
+		OriginalPrincipalCents: 100_000_000,
+		FirstPaymentDate:       "2026-01-20",
+		TotalPeriods:           12,
+		Method:                 "equal_installment",
+		InitialAnnualRate:      "4.90",
+		RateChanges:            []domain.LoanRateChange{{Date: "2026-06-25", AnnualRate: "5.00"}},
+	}
+}
+
+func TestLoanHistoryPreviewDoesNotWrite(t *testing.T) {
+	ctx := context.Background()
+	loans, svc, st := newLoanTest(t)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "测试房贷", Type: domain.AccountLiability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err := loans.PreviewHistory(historyFormInput(account.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Periods) != 12 || view.PaidPeriods == 0 || view.Next == nil {
+		t.Fatalf("view = %+v", view.LoanCalculation)
+	}
+	if view.Periods[0].PaymentCents != 8_556_166 {
+		t.Fatalf("first payment = %d", view.Periods[0].PaymentCents)
+	}
+	if stored, err := st.GetLoanHistory(ctx, account.ID); err != nil || stored != nil {
+		t.Fatalf("preview must not store history: %+v, err = %v", stored, err)
+	}
+	if confirmed, err := st.ListConfirmed(ctx, account.ID, "", ""); err != nil || len(confirmed) != 0 {
+		t.Fatalf("preview must not write snapshots: %d, err = %v", len(confirmed), err)
+	}
+
+	invalid := historyFormInput(account.ID)
+	invalid.TotalPeriods = 0
+	if _, err := loans.PreviewHistory(invalid); err == nil {
+		t.Fatal("zero periods must fail")
+	}
+}
+
+func TestLoanHistorySaveReplacesAnchor(t *testing.T) {
+	ctx := context.Background()
+	loans, svc, st := newLoanTest(t)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "测试房贷", Type: domain.AccountLiability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loans.Save(loanForm(account.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loans.SaveHistory(historyFormInput(account.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if terms, err := st.GetLoan(ctx, account.ID); err != nil || terms != nil {
+		t.Fatalf("anchor terms should be gone: %+v, err = %v", terms, err)
+	}
+	history, err := st.GetLoanHistory(ctx, account.ID)
+	if err != nil || history == nil || history.TotalPeriods != 12 {
+		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+	if confirmed, err := st.ListConfirmed(ctx, account.ID, "", ""); err != nil || len(confirmed) < 2 {
+		t.Fatalf("snapshots = %d, err = %v", len(confirmed), err)
+	}
+	audit, err := st.ListAudit(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, entry := range audit {
+		if entry.Action == "loan_history" && strings.Contains(entry.Detail, "来源 desktop") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("desktop history audit missing: %+v", audit)
+	}
+
+	overview, err := NewOverviewService(svc).Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Accounts) != 1 || overview.Accounts[0].Loan == nil || overview.Accounts[0].Loan.History == nil {
+		t.Fatalf("overview = %+v", overview.Accounts)
+	}
+}

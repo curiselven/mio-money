@@ -67,3 +67,32 @@ type GetLoanInput struct {
 	AccountID string `json:"account_id" jsonschema:"liability account id"`
 	Schedule  bool   `json:"schedule,omitempty" jsonschema:"include every future payment"`
 }
+
+type LoanRateChangeInput struct {
+	Date       string `json:"date" jsonschema:"effective date, YYYY-MM-DD; applies from the first payment after it"`
+	AnnualRate string `json:"annual_rate" jsonschema:"annual rate as a decimal string, e.g. \"3.20\"; 0-30"`
+}
+
+type LoanPrepaymentInput struct {
+	Date        string `json:"date" jsonschema:"prepayment date, YYYY-MM-DD"`
+	AmountCents int64  `json:"amount_cents" jsonschema:"principal reduction, integer cents"`
+	Mode        string `json:"mode" jsonschema:"shorten_periods or reduce_payment"`
+}
+
+type SetLoanHistoryInput struct {
+	AccountID              string                `json:"account_id" jsonschema:"liability account id"`
+	OriginalPrincipalCents int64                 `json:"original_principal_cents" jsonschema:"original loan principal, integer cents"`
+	FirstPaymentDate       string                `json:"first_payment_date" jsonschema:"date of period 1; its day of month is the payment day"`
+	TotalPeriods           int                   `json:"total_periods" jsonschema:"total contracted periods"`
+	Method                 string                `json:"method" jsonschema:"equal_installment or equal_principal"`
+	InitialAnnualRate      string                `json:"initial_annual_rate" jsonschema:"initial annual rate as a decimal string, e.g. \"4.90\""`
+	RateChanges            []LoanRateChangeInput `json:"rate_changes,omitempty" jsonschema:"rate changes, applied from the first payment strictly after each effective date"`
+	Prepayments            []LoanPrepaymentInput `json:"prepayments,omitempty" jsonschema:"optional prepayments; shorten periods or reduce payment"`
+}
+
+type GetLoanHistoryInput struct {
+	AccountID string `json:"account_id" jsonschema:"liability account id"`
+	From      int    `json:"from,omitempty" jsonschema:"optional first period number (1-based)"`
+	To        int    `json:"to,omitempty" jsonschema:"optional last period number (1-based)"`
+	Schedule  bool   `json:"schedule,omitempty" jsonschema:"include every period; otherwise use from/to"`
+}

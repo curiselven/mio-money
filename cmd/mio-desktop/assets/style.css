@@ -485,6 +485,95 @@ button.loan-edit {
   margin-top: 12px;
 }
 
+.loan-rate-field {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.loan-rate-changes {
+  display: grid;
+  gap: 8px;
+}
+
+.rate-change-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.rate-change-row input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #d7dde5;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+  color: #20252c;
+  background: #fff;
+}
+
+button.loan-add-rate {
+  justify-self: start;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.loan-schedule {
+  margin-top: 12px;
+}
+
+.loan-schedule-details summary {
+  color: #2f6fed;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.loan-schedule-scroll {
+  max-height: 320px;
+  margin-top: 8px;
+  overflow: auto;
+  border: 1px solid #eef1f5;
+  border-radius: 8px;
+}
+
+.loan-schedule table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.loan-schedule th,
+.loan-schedule td {
+  padding: 6px 9px;
+  border-bottom: 1px solid #f2f4f7;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.loan-schedule th:first-child,
+.loan-schedule td:first-child {
+  text-align: left;
+}
+
+.loan-schedule thead th {
+  position: sticky;
+  top: 0;
+  background: #fbfcfe;
+  color: #667085;
+  font-weight: 600;
+}
+
+.loan-schedule tr.rate-change td {
+  background: #fff6dc;
+}
+
 .holdings {
   width: calc(100% - 28px);
   margin: 0 14px 14px;
