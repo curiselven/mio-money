@@ -75,8 +75,6 @@ type EfundTargetPreview struct {
 	Key              string           `json:"key"`
 	AccountID        string           `json:"account_id,omitempty"`
 	AccountName      string           `json:"account_name"`
-	NewAccount       bool             `json:"new_account"`
-	Platform         string           `json:"platform,omitempty"`
 	GroupCount       int              `json:"group_count"`
 	FundCount        int              `json:"fund_count"`
 	MarketValueCents int64            `json:"market_value_cents"`
@@ -124,7 +122,6 @@ type EfundSelection struct {
 type EfundImportAccountResult struct {
 	AccountID        string   `json:"account_id,omitempty"`
 	AccountName      string   `json:"account_name"`
-	NewAccount       bool     `json:"new_account"`
 	Status           string   `json:"status"`
 	SnapshotID       string   `json:"snapshot_id,omitempty"`
 	Anomalies        []string `json:"anomalies,omitempty"`
@@ -151,8 +148,6 @@ type efundGroup struct {
 type efundTarget struct {
 	accountID     string
 	accountName   string
-	newAccount    bool
-	platform      string
 	groups        []EfundGroupPreview
 	holdings      []efund.Holding
 	mappingKeys   []string
@@ -429,196 +424,6 @@ func (s *EfundService) loadMapping() (*efund.Mapping, error) {
 	return mapping, err
 }
 
-func (s *EfundService) buildPreviewOld(parsed *efund.Result, mapping *efund.Mapping, accounts []domain.Account) (*EfundPreview, error) {
-	ctx := context.Background()
-	byID := map[string]domain.Account{}
-	byName := map[string][]domain.Account{}
-	options := []EfundAccountOption{}
-	for _, account := range accounts {
-		byID[account.ID] = account
-		if account.Archived {
-			continue
-		}
-		byName[strings.ToLower(strings.TrimSpace(account.Name))] = append(
-			byName[strings.ToLower(strings.TrimSpace(account.Name))], account)
-		options = append(options, EfundAccountOption{
-			ID: account.ID, Name: account.Name, Platform: account.Platform,
-			Type: account.Type, Currency: account.Currency,
-		})
-	}
-	sort.Slice(options, func(i, j int) bool { return options[i].Name < options[j].Name })
-
-	entries := map[string]efund.MappingEntry{}
-	for _, entry := range mapping.Mappings {
-		entries[efund.MappingKey(entry.SalesOrg, entry.TradeAccount)] = entry
-	}
-
-	preview := &EfundPreview{
-		FileName: parsed.File,
-		Meta:     parsed.Meta,
-		Warnings: append([]efund.Warning{}, parsed.Warnings...),
-		Groups:   []EfundGroupPreview{},
-		Targets:  []EfundTargetPreview{},
-		Accounts: options,
-	}
-	groups := groupEfundHoldings(parsed.Holdings)
-	targets := map[string]*efundTarget{}
-	targetOrder := []string{}
-	unresolved := 0
-
-	for _, group := range groups {
-		key := efund.MappingKey(group.salesOrg, group.tradeAccount)
-		entry := entries[key]
-		view := EfundGroupPreview{
-			SalesOrg:     group.salesOrg,
-			TradeAccount: group.tradeAccount,
-			Mode:         efundModeUnmapped,
-			Name:         group.salesOrg + "·" + group.tradeAccount + "·未映射",
-			FundCount:    countEfundFunds(group.holdings),
-			Holdings:     group.holdings,
-			TopFunds:     topEfundFunds(group.holdings),
-		}
-		view.MarketValueCents = sumEfundValue(group.holdings)
-
-		switch {
-		case entry.Ignore:
-			view.Mode = efundModeIgnore
-			view.Ignored = true
-			view.Name = group.salesOrg + "·" + group.tradeAccount + "·已忽略"
-		case entry.AccountID != "":
-			if account, ok := byID[entry.AccountID]; ok && !account.Archived {
-				view.Mode = efundModeExisting
-				view.AccountID = account.ID
-				view.AccountName = account.Name
-				view.Name = account.Name
-			} else {
-				view.Issue = "映射账户 ID 不存在或已归档，请重新选择"
-				preview.Warnings = append(preview.Warnings, efund.Warning{
-					Code: "mapping_account_missing", Severity: efund.SeverityWarning,
-					Message: group.salesOrg + " / " + group.tradeAccount + "：" + view.Issue,
-				})
-			}
-		case entry.Account != "":
-			matches := byName[strings.ToLower(entry.Account)]
-			switch len(matches) {
-			case 1:
-				view.Mode = efundModeExisting
-				view.AccountID = matches[0].ID
-				view.AccountName = matches[0].Name
-				view.Name = matches[0].Name
-			case 0:
-				view.Mode = efundModeNew
-				view.AccountName = entry.Account
-				view.Name = entry.Account
-			default:
-				view.Issue = "库中有多个同名账户，请选择具体账户"
-				preview.Warnings = append(preview.Warnings, efund.Warning{
-					Code: "mapping_account_ambiguous", Severity: efund.SeverityWarning,
-					Message: group.salesOrg + " / " + group.tradeAccount + "：" + view.Issue,
-				})
-			}
-		}
-		preview.Groups = append(preview.Groups, view)
-
-		switch view.Mode {
-		case efundModeExisting:
-			targetKey := "id:" + view.AccountID
-			target := targets[targetKey]
-			if target == nil {
-				target = &efundTarget{accountID: view.AccountID, accountName: view.AccountName}
-				targets[targetKey] = target
-				targetOrder = append(targetOrder, targetKey)
-			}
-			addEfundGroupToTarget(target, group, key)
-		case efundModeNew:
-			targetKey := "new:" + strings.ToLower(strings.TrimSpace(view.AccountName))
-			target := targets[targetKey]
-			if target == nil {
-				target = &efundTarget{
-					accountName: view.AccountName,
-					newAccount:  true, platform: group.salesOrg,
-				}
-				targets[targetKey] = target
-				targetOrder = append(targetOrder, targetKey)
-			}
-			addEfundGroupToTarget(target, group, key)
-		case efundModeUnmapped:
-			unresolved++
-		}
-	}
-
-	for _, key := range targetOrder {
-		target := targets[key]
-		items, err := aggregateEfundItems(target.holdings)
-		if err != nil {
-			return nil, err
-		}
-		var previous *domain.Snapshot
-		if target.accountID != "" {
-			previous, err = s.st.LastConfirmedBefore(ctx, target.accountID, parsed.Meta.ShareDate)
-			if err != nil {
-				return nil, err
-			}
-		}
-		account := domain.Account{
-			ID: target.accountID, Name: target.accountName, Type: domain.AccountFund,
-			Currency: "CNY", Platform: target.platform,
-		}
-		if existing, ok := byID[target.accountID]; ok {
-			account = existing
-		}
-		next := &domain.Snapshot{
-			AccountID: target.accountID, AsOf: parsed.Meta.ShareDate,
-			Source: domain.SourceEfundImport, Currency: "CNY", Items: items,
-		}
-		diff := domain.ComputeDiff(previous, next)
-		anomalies := domain.StructuredAnomalies(previous, next, &account, s.svc.Threshold())
-		targetView := EfundTargetPreview{
-			AccountID: target.accountID, AccountName: target.accountName,
-			NewAccount: target.newAccount, Platform: target.platform,
-			GroupCount: len(target.groups), FundCount: len(items),
-			MarketValueCents: sumItems(items), Diff: diff, Anomalies: anomalies,
-			Holdings: items, mappingKeys: target.mappingKeys,
-			tradeAccounts: target.tradeAccounts,
-		}
-		if previous != nil {
-			targetView.PreviousAsOf = previous.AsOf
-		}
-		if target.accountID != "" {
-			status, imported, err := s.conflictStatus(ctx, target.accountID, parsed.Meta.ShareDate)
-			if err != nil {
-				return nil, err
-			}
-			targetView.AlreadyImported = imported
-			targetView.ImportedStatus = status
-		}
-		preview.Targets = append(preview.Targets, targetView)
-		preview.TotalMarketValueCents += targetView.MarketValueCents
-		preview.TotalHoldingCount += len(items)
-	}
-
-	var blocks []string
-	for _, warning := range preview.Warnings {
-		if warning.Severity == efund.SeverityBlocksWrite {
-			blocks = append(blocks, warning.Message)
-		}
-	}
-	switch {
-	case len(blocks) > 0:
-		preview.BlockedByData = true
-		preview.BlockReason = "文件校验未通过，禁止写入：" + strings.Join(blocks, "；")
-	case unresolved > 0:
-		preview.BlockReason = fmt.Sprintf("还有 %d 个交易账户未决定映射", unresolved)
-	case len(preview.Targets) == 0:
-		preview.BlockReason = "没有要导入的组合"
-	case parsed.Meta.ShareDate == "":
-		preview.BlockReason = "文件没有可用的份额日期"
-	default:
-		preview.CanImport = true
-	}
-	return preview, nil
-}
-
 func (s *EfundService) conflictStatus(ctx context.Context, accountID, asOf string) (string, bool, error) {
 	confirmed, err := s.st.ListConfirmed(ctx, accountID, asOf, asOf)
 	if err != nil {
@@ -637,57 +442,6 @@ func (s *EfundService) conflictStatus(ctx context.Context, accountID, asOf strin
 		}
 	}
 	return "", false, nil
-}
-
-func applyEfundSelectionOld(mapping *efund.Mapping, accounts []domain.Account, selection EfundSelection) error {
-	key := efund.MappingKey(selection.SalesOrg, selection.TradeAccount)
-	entry := findMappingEntry(mapping, key)
-	if entry == nil {
-		mapping.Mappings = append(mapping.Mappings, efund.MappingEntry{
-			SalesOrg: selection.SalesOrg, TradeAccount: selection.TradeAccount,
-		})
-		entry = &mapping.Mappings[len(mapping.Mappings)-1]
-	}
-	switch selection.Mode {
-	case efundModeIgnore:
-		entry.Account = ""
-		entry.AccountID = ""
-		entry.Ignore = true
-	case efundModeExisting:
-		var account *domain.Account
-		for i := range accounts {
-			if accounts[i].ID == selection.AccountID && !accounts[i].Archived {
-				account = &accounts[i]
-				break
-			}
-		}
-		if account == nil {
-			return errors.New("选择的账户不存在或已归档")
-		}
-		entry.Account = account.Name
-		entry.AccountID = account.ID
-		entry.Ignore = false
-	case efundModeNew:
-		name := strings.TrimSpace(selection.AccountName)
-		if name == "" {
-			return errors.New("请输入新账户名称")
-		}
-		for _, account := range accounts {
-			if !account.Archived && strings.EqualFold(strings.TrimSpace(account.Name), name) {
-				return fmt.Errorf("账户名「%s」已存在，请选择已有账户", name)
-			}
-		}
-		entry.Account = name
-		entry.AccountID = ""
-		entry.Ignore = false
-	case efundModeUnmapped, "":
-		entry.Account = ""
-		entry.AccountID = ""
-		entry.Ignore = false
-	default:
-		return fmt.Errorf("未知映射模式：%s", selection.Mode)
-	}
-	return nil
 }
 
 func findMappingEntry(mapping *efund.Mapping, key string) *efund.MappingEntry {

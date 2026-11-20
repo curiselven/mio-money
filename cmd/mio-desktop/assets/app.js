@@ -1,6 +1,7 @@
 if (window.location.protocol === "wails:" || window.location.hostname === "wails.localhost") {
   await import("/wails/runtime.js");
 }
+import { accountEditValues } from "./account_form.mjs";
 
 const overviewView = document.getElementById("overview-view");
 const pendingView = document.getElementById("pending-view");
@@ -1462,7 +1463,7 @@ function renderEfundGroup(group, preview) {
   for (const account of topAccounts) {
     const option = document.createElement("option");
     option.value = `account:${account.id}`;
-    option.textContent = `${account.name}${account.platform ? ` · ${account.platform}` : ""}`;
+    option.textContent = account.name;
     accountSelect.append(option);
   }
   if (group.mode === "ignore") accountSelect.value = "ignore";
@@ -1473,7 +1474,7 @@ function renderEfundGroup(group, preview) {
   const nameInput = document.createElement("input");
   nameInput.type = "text";
   nameInput.className = "efund-account-name";
-  nameInput.placeholder = `新账户名称（平台：${group.sales_org}）`;
+  nameInput.placeholder = "新账户名称";
   nameInput.hidden = accountSelect.value !== "new";
   row.append(nameInput);
 
@@ -1598,7 +1599,6 @@ function renderEfundTarget(target, preview) {
   const head = efundNode("div", "efund-target-head");
   const left = efundNode("div");
   const title = efundNode("h3", "", target.account_name);
-  if (target.new_account) title.append(efundNode("span", "efund-tag warn-tag", "新建"));
   if (target.group_count > 1) title.append(efundNode("span", "efund-tag muted-tag", `合并 ${target.group_count} 个交易账户`));
   if (target.already_imported) title.append(efundNode("span", "efund-tag muted-tag", `已导入过（${target.imported_status}）`));
   left.append(title);
@@ -1952,15 +1952,12 @@ function renderAccountTree(tree) {
     if (top.archived) title.append(efundNode("span", "efund-tag muted-tag", "已归档"));
     left.append(title);
     left.append(efundNode("p", "meta-line",
-      `${typeLabels[top.type] || top.type} · ${top.currency} · ${top.platform || "无平台"} · ${top.owner || "未归属"} · ${tree.portfolios.filter((p) => p.parent_id === top.id).length} 个组合`));
+      `${typeLabels[top.type] || top.type} · ${top.currency} · ${top.owner || "未归属"} · ${tree.portfolios.filter((p) => p.parent_id === top.id).length} 个组合`));
     head.append(left);
     const actions = efundNode("div", "efund-actions");
     const edit = efundNode("button", "btn", "编辑");
     edit.type = "button";
-    edit.addEventListener("click", () => {
-      accountEditSelect.value = top.id;
-      syncAccountEdit();
-    });
+    edit.addEventListener("click", () => openAccountEditor(top.id));
     const add = efundNode("button", "btn", "新建组合");
     add.type = "button";
     add.addEventListener("click", () => {
@@ -1981,10 +1978,7 @@ function renderAccountTree(tree) {
       name.append(efundNode("span", "muted", ` · ${portfolio.currency} · ${portfolio.owner || "未归属"}`));
       const button = efundNode("button", "btn", "编辑");
       button.type = "button";
-      button.addEventListener("click", () => {
-        accountEditSelect.value = portfolio.id;
-        syncAccountEdit();
-      });
+      button.addEventListener("click", () => openAccountEditor(portfolio.id));
       li.append(name, button);
       list.append(li);
     }
@@ -2024,20 +2018,43 @@ function fillAccountOptions(tree) {
 function syncAccountEdit() {
   archiveArmed = false;
   const item = accountItem(accountEditSelect.value) || accountItem(accountTree?.accounts[0]?.id);
-  if (!item) return;
-  accountEditSelect.value = item.id;
-  const isPortfolio = Boolean(item.parent_id);
-  accountEditForm.classList.toggle("portfolio-mode", isPortfolio);
-  accountEditForm.elements.name.value = item.name;
-  accountEditForm.elements.platform.value = item.platform || "";
-  accountEditForm.elements.type.value = item.type || "fund";
-  accountEditForm.elements.currency.value = item.currency || "CNY";
-  accountEditForm.elements.owner.value = item.owner || "";
-  const archive = accountEditForm.querySelector(".account-archive");
-  archive.textContent = "归档";
-  archive.classList.remove("danger");
-  archive.disabled = item.archived || item.has_snapshots || (!isPortfolio && item.has_children);
-  archive.title = archive.disabled ? "有快照或有组合的对象不能归档" : "";
+  if (!item) return false;
+  try {
+    const values = accountEditValues(item);
+    accountEditSelect.value = item.id;
+    accountEditForm.classList.toggle("portfolio-mode", values.isPortfolio);
+    accountEditForm.elements.name.value = values.name;
+    const typeSelect = accountEditForm.elements.type;
+    if (![...typeSelect.options].some((option) => option.value === values.type)) {
+      throw new Error(`编辑表单缺少账户类型选项：${values.type}`);
+    }
+    typeSelect.value = values.type;
+    accountEditForm.elements.currency.value = values.currency;
+    accountEditForm.elements.owner.value = values.owner;
+    const archive = accountEditForm.querySelector(".account-archive");
+    archive.textContent = "归档";
+    archive.classList.remove("danger");
+    archive.disabled = item.archived || item.has_snapshots || (!values.isPortfolio && item.has_children);
+    archive.title = archive.disabled ? "有快照或有组合的对象不能归档" : "";
+    return true;
+  } catch (error) {
+    showStatus(`账户编辑表单加载失败：${errorText(error)}`, "error");
+    return false;
+  }
+}
+
+function openAccountEditor(id) {
+  try {
+    const item = accountItem(id);
+    if (!item) throw new Error("找不到要编辑的账户");
+    accountEditSelect.value = id;
+    if (!syncAccountEdit()) return;
+    accountEditForm.scrollIntoView({ behavior: "smooth", block: "center" });
+    accountEditForm.elements.name.focus({ preventScroll: true });
+    showStatus(`正在编辑：${accountLabel(item)}`);
+  } catch (error) {
+    showStatus(`打开编辑表单失败：${errorText(error)}`, "error");
+  }
 }
 
 async function reloadAccounts() {
@@ -2059,7 +2076,6 @@ accountCreateForm.addEventListener("submit", async (event) => {
   try {
     await call("AccountService.SaveAccount", {
       name: elements.name.value.trim(),
-      platform: elements.platform.value.trim(),
       type: elements.type.value,
       currency: elements.currency.value.trim() || "CNY",
       owner: elements.owner.value.trim(),
@@ -2103,7 +2119,6 @@ accountEditForm.addEventListener("submit", async (event) => {
       await call("AccountService.SaveAccount", {
         id: item.id,
         name: elements.name.value.trim(),
-        platform: elements.platform.value.trim(),
         type: elements.type.value,
         currency: elements.currency.value.trim() || "CNY",
         owner: elements.owner.value.trim(),

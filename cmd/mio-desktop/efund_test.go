@@ -121,7 +121,7 @@ func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 			created = &copy
 		}
 	}
-	if created == nil || created.Type != domain.AccountFund || created.Platform != efundSalesB || created.Currency != "CNY" {
+	if created == nil || created.Type != domain.AccountFund || created.Platform != "" || created.Currency != "CNY" {
 		t.Fatalf("created account = %+v", created)
 	}
 	mapping, err := efund.LoadMapping(efund.DefaultMappingPath(h.dbPath))

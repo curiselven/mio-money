@@ -24,7 +24,7 @@ usage() {
   --prefix <dir>       安装目录，默认 /Applications
   --archive-dir <dir>  旧 Mio.app 的归档根目录，默认 $HOME/.mio-old-apps
   --version <ver>      写入 Info.plist 的版本号，默认 0.1.0
-  --icon <path>        图标源文件（.png/.icns/.svg），默认 docs/images/logo.svg
+  --icon <path>        图标源文件（.png/.icns/.svg）；默认 packaging/macos/Mio.icns，缺失时回退 docs/images/logo.svg
   --dry-run            只打印将执行的步骤，不构建、不改 /Applications 或数据库
   --help               显示帮助
 EOF
@@ -64,7 +64,11 @@ step() {
 }
 
 if [[ -z "$ICON" ]]; then
-  ICON="$ROOT/docs/images/logo.svg"
+  if [[ -f "$ROOT/packaging/macos/Mio.icns" ]]; then
+    ICON="$ROOT/packaging/macos/Mio.icns"
+  else
+    ICON="$ROOT/docs/images/logo.svg"
+  fi
 fi
 
 step "检查运行中的 Mio"
@@ -78,9 +82,11 @@ step "备份数据库"
 if [[ -f "$DB_PATH" ]]; then
   run mkdir -p -m 0700 "$BACKUP_DIR"
   run cp -p "$DB_PATH" "$BACKUP_PATH"
+  run chmod 0600 "$BACKUP_PATH"
   for suffix in -wal -shm; do
     if [[ -f "$DB_PATH$suffix" ]]; then
       run cp -p "$DB_PATH$suffix" "$BACKUP_PATH$suffix"
+      run chmod 0600 "$BACKUP_PATH$suffix"
     fi
   done
   echo "  数据库备份目标: $BACKUP_PATH"
@@ -110,7 +116,7 @@ ICON_TMP="$BUILD_DIR/icon-work"
 ICONSET="$ICON_TMP/icon.iconset"
 run mkdir -p "$ICONSET"
 if [[ "$ICON" == *.icns ]]; then
-  run cp "$ICON" "$APP_PATH/Contents/Resources/icon.icns"
+  run cp "$ICON" "$APP_PATH/Contents/Resources/Mio.icns"
 else
   PNG="$ICON_TMP/source.png"
   if [[ "$ICON" == *.svg ]]; then
@@ -137,7 +143,7 @@ else
   run sips -z 512 512 "$PNG" --out "$ICONSET/icon_256x256@2x.png"
   run sips -z 512 512 "$PNG" --out "$ICONSET/icon_512x512.png"
   run sips -z 1024 1024 "$PNG" --out "$ICONSET/icon_512x512@2x.png"
-  run iconutil -c icns "$ICONSET" -o "$APP_PATH/Contents/Resources/icon.icns"
+  run iconutil -c icns "$ICONSET" -o "$APP_PATH/Contents/Resources/Mio.icns"
 fi
 
 step "Ad-hoc 签名"

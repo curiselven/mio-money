@@ -291,7 +291,7 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 			}
 		}
 		account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
-			Name: name, Type: domain.AccountFund, Currency: "CNY", Platform: selection.SalesOrg,
+			Name: name, Type: domain.AccountFund, Currency: "CNY",
 		})
 		if err != nil {
 			return fail(err)

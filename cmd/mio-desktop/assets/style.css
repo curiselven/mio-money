@@ -131,6 +131,9 @@ body {
   background: #fff1dc;
   color: #8a5a20;
   font-size: 12px;
+  position: sticky;
+  top: 52px;
+  z-index: 9;
 }
 
 .status.error {

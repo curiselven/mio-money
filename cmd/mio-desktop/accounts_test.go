@@ -52,6 +52,9 @@ func TestAccountServiceTreeRenameAndArchive(t *testing.T) {
 	if err != nil || tree.Accounts[0].Name != "改名账户" || tree.Portfolios[0].Name != "改名组合" {
 		t.Fatalf("rename = %+v, err=%v", tree, err)
 	}
+	if tree.Accounts[0].Platform != "示例平台" {
+		t.Fatalf("rename cleared platform: %+v", tree.Accounts[0])
+	}
 
 	empty, err := accounts.SaveAccount(AccountFormInput{Name: "空账户", Type: domain.AccountCash})
 	if err != nil {
@@ -79,5 +82,44 @@ func TestAccountServiceTreeRenameAndArchive(t *testing.T) {
 	}
 	if _, err := accounts.SavePortfolio(PortfolioFormInput{ID: portfolio.ID, Archived: boolp(true)}); err == nil {
 		t.Fatal("portfolio with snapshot was archived")
+	}
+}
+
+func TestAccountServiceEditsAllManagedTypes(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "mio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := domain.NewService(st, 0.2)
+	accounts := NewAccountService(svc, st)
+	for _, accountType := range []domain.AccountType{
+		domain.AccountFund, domain.AccountMixed, domain.AccountCash, domain.AccountStock, domain.AccountOther,
+	} {
+		account, err := accounts.SaveAccount(AccountFormInput{
+			Name: "示例" + string(accountType), Type: accountType, Currency: "CNY", Owner: "我",
+		})
+		if err != nil {
+			t.Fatalf("%s create: %v", accountType, err)
+		}
+		updated, err := accounts.SaveAccount(AccountFormInput{ID: account.ID, Name: "改名" + string(accountType)})
+		if err != nil || updated.Name != "改名"+string(accountType) || updated.Type != accountType {
+			t.Fatalf("%s edit = %+v, err=%v", accountType, updated, err)
+		}
+	}
+	liability, err := svc.UpsertAccount(context.Background(), domain.UpsertAccountInput{
+		Name: "示例房贷", Type: domain.AccountLiability,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree, err := accounts.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range tree.Accounts {
+		if item.ID == liability.ID {
+			t.Fatal("liability account appeared in account management")
+		}
 	}
 }
