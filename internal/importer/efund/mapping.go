@@ -13,6 +13,7 @@ type MappingEntry struct {
 	TradeAccount string `json:"trade_account"`
 	Account      string `json:"account"`
 	AccountID    string `json:"account_id"`
+	Ignore       bool   `json:"ignore,omitempty"`
 	Hint         *Hint  `json:"hint,omitempty"`
 }
 
@@ -55,4 +56,8 @@ func LoadMapping(file string) (*Mapping, error) {
 
 func mappingKey(salesOrg, tradeAccount string) string {
 	return strings.TrimSpace(salesOrg) + "\x00" + strings.TrimSpace(tradeAccount)
+}
+
+func MappingKey(salesOrg, tradeAccount string) string {
+	return mappingKey(salesOrg, tradeAccount)
 }

@@ -73,6 +73,20 @@ func TestParsePlainZipDoesNotRequestPassword(t *testing.T) {
 	}
 }
 
+func TestParseBytes(t *testing.T) {
+	data, err := os.ReadFile(sampleBook(t))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	parsed, err := ParseBytes("memory.xlsx", data, nil)
+	if err != nil {
+		t.Fatalf("parse bytes: %v", err)
+	}
+	if len(parsed.Holdings) != 3 || parsed.File != "memory.xlsx" {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+}
+
 func TestParseZipWithMultipleXLSX(t *testing.T) {
 	xlsx, err := os.ReadFile(sampleBook(t))
 	if err != nil {

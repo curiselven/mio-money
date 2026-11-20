@@ -636,3 +636,216 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   .reconcile-row { grid-template-columns: minmax(0, 1fr); }
   .topbar { overflow-x: auto; }
 }
+
+/* ---------- efund import ---------- */
+
+.efund-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.efund-file-input { display: none; }
+
+.efund-password {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.efund-password input,
+.efund-account-name,
+.efund-select {
+  border: 1px solid #e2d3bf;
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.efund-password input { width: 150px; }
+.efund-account-name { min-width: 170px; }
+.efund-select { max-width: 280px; }
+
+.efund-hint {
+  margin: 9px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.efund-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.efund-meta strong { color: var(--ink); font-weight: 600; }
+.efund-meta .bad { color: var(--red); font-weight: 700; }
+
+.efund-warnings {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.efund-warning {
+  padding: 7px 10px;
+  border: 1px solid #e8d5ae;
+  border-radius: 9px;
+  background: #fff8e7;
+  color: #7a5410;
+  font-size: 12px;
+}
+
+.efund-warning.blocks_write {
+  border-color: #ebc6bc;
+  background: #fbede7;
+  color: var(--red);
+}
+
+.efund-group {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fffdf9;
+}
+
+.efund-group-head,
+.efund-target-head,
+.efund-result-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.efund-group h3,
+.efund-target h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-strong);
+}
+
+.efund-sub {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.efund-map-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.efund-map-row label { color: var(--muted); font-size: 12px; }
+
+.efund-issue { color: var(--red); font-size: 11.5px; }
+
+.efund-holdings {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.efund-holdings th,
+.efund-holdings td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.efund-holdings th:first-child,
+.efund-holdings td:first-child { text-align: left; }
+.efund-holdings th { color: var(--muted); font-weight: 600; }
+
+.efund-details { margin-top: 10px; }
+.efund-details summary {
+  cursor: pointer;
+  color: var(--clay);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.efund-targets {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.efund-target {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+
+.efund-target .diff {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.efund-target .diff li { margin: 2px 0; }
+
+.efund-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--clay-soft);
+  color: var(--clay);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.efund-tag.muted-tag { background: var(--line-soft); color: var(--muted); }
+.efund-tag.warn-tag { background: var(--amber-bg); color: #8a5a20; }
+
+.efund-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.efund-block { color: var(--red); font-size: 12px; }
+
+.efund-results { margin-top: 12px; }
+.efund-results h3 { margin: 0 0 8px; font-size: 14px; }
+.efund-result-row {
+  padding: 10px 0;
+  border-top: 1px solid var(--line-soft);
+}
+.efund-result-row:first-of-type { border-top: 0; }
+.efund-result-message { margin-top: 4px; color: var(--muted); font-size: 11.5px; }
+.efund-result-message .bad { color: var(--red); }
+
+@media (max-width: 620px) {
+  .efund-group-head,
+  .efund-target-head,
+  .efund-result-head { flex-direction: column; }
+  .efund-select { width: 100%; max-width: none; }
+  .efund-account-name { width: 100%; }
+  .efund-holdings { display: block; overflow-x: auto; }
+}

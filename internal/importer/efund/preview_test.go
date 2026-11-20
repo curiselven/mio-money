@@ -139,6 +139,27 @@ func TestPreviewAccountIDWinsWithoutNameFallback(t *testing.T) {
 	}
 }
 
+func TestPreviewIgnoredGroup(t *testing.T) {
+	parsed, err := Parse(mappingBook(t))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	preview, err := Build(t.Context(), nil, parsed, &Mapping{Mappings: []MappingEntry{
+		{SalesOrg: salesA, TradeAccount: "T0000001", Ignore: true},
+	}})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if !preview.Groups[0].Ignored || preview.Groups[0].Status != "ignored" {
+		t.Fatalf("ignored group = %+v", preview.Groups[0])
+	}
+	for _, unmapped := range preview.Unmapped {
+		if unmapped.TradeAccount == "T0000001" {
+			t.Fatalf("ignored group counted as unmapped: %+v", preview.Unmapped)
+		}
+	}
+}
+
 func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "mio.db")

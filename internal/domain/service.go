@@ -63,13 +63,14 @@ func validDate(v string) error {
 }
 
 type SubmitInput struct {
-	AccountID  string
-	AsOf       string
-	Source     Source
-	SourceNote string
-	Currency   string
-	CashCents  *int64
-	Items      []Item
+	AccountID   string
+	AsOf        string
+	Source      Source
+	SourceNote  string
+	Currency    string
+	CashCents   *int64
+	Items       []Item
+	AuditDetail string
 }
 
 type SubmitResult struct {
@@ -93,7 +94,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 		source = SourceMCP
 	}
 	if source == SourceLoan || !source.Valid() {
-		return nil, fmt.Errorf("source %q must be one of screenshot, mcp, statement, manual", source)
+		return nil, fmt.Errorf("source %q must be one of screenshot, mcp, statement, manual, efund_import", source)
 	}
 	account, err := s.repo.GetAccount(ctx, in.AccountID)
 	if err != nil {
@@ -133,7 +134,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 	if err := s.repo.InsertSnapshot(ctx, snapshot); err != nil {
 		return nil, err
 	}
-	if err := s.audit(ctx, "submit", snapshot, ""); err != nil {
+	if err := s.audit(ctx, "submit", snapshot, in.AuditDetail); err != nil {
 		return nil, err
 	}
 	return &SubmitResult{

@@ -38,3 +38,20 @@ func TestAppJSUsesNoNativeDialogs(t *testing.T) {
 		}
 	}
 }
+
+func TestEfundAssetsPresent(t *testing.T) {
+	index, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), "基金E账户") || !strings.Contains(string(index), `data-view="efund"`) {
+		t.Fatal("efund import view is missing")
+	}
+	if !strings.Contains(string(app), "EfundService.Preview") || !strings.Contains(string(app), "EfundService.Import") {
+		t.Fatal("efund service calls are missing")
+	}
+}

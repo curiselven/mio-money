@@ -14,6 +14,7 @@
       <button class="nav-item" type="button" role="tab" data-view="pending" aria-selected="false">
         待确认<span id="pending-count" class="count" hidden></span>
       </button>
+      <button class="nav-item" type="button" role="tab" data-view="efund" aria-selected="false">导入 · 基金E账户</button>
       <button id="nav-loan" class="nav-item" type="button" role="tab" data-view="loan" aria-selected="false" hidden>房贷还款计划</button>
     </nav>
     <div class="spacer"></div>
@@ -91,6 +92,24 @@
         <div id="list" class="list"></div>
         <div id="empty" class="empty" hidden>没有需要你确认的快照</div>
       </section>
+    </section>
+
+    <section id="efund-view" class="view" hidden>
+      <section class="panel efund-upload">
+        <div class="ph"><h2>导入 · 基金E账户</h2><span>xlsx / 加密 zip</span></div>
+        <div class="efund-file-row">
+          <label class="btn" for="efund-file">选择文件</label>
+          <input id="efund-file" class="efund-file-input" type="file" accept=".xlsx,.zip">
+          <span id="efund-file-name" class="muted">未选择文件</span>
+          <label id="efund-password-wrap" class="efund-password" hidden>
+            密码
+            <input id="efund-password" type="password" autocomplete="off" spellcheck="false">
+          </label>
+          <button id="efund-parse" class="btn pri" type="button" disabled>解析</button>
+        </div>
+        <p class="efund-hint">密码只用于本次解密，不保存、不写日志。xlsx 不需要密码；加密 zip 请在这里输入。</p>
+      </section>
+      <div id="efund-result"></div>
     </section>
 
     <section id="loan-view" class="view" hidden>

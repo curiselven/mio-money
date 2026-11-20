@@ -26,11 +26,16 @@ func ParseWithPassword(file string, password PasswordProvider) (*Result, error) 
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
+	return ParseBytes(file, data, password)
+}
+
+func ParseBytes(file string, data []byte, password PasswordProvider) (*Result, error) {
 	if isOuterArchive(file, data) {
-		data, err = extractXLSX(data, password)
+		xlsx, err := extractXLSX(data, password)
 		if err != nil {
 			return nil, err
 		}
+		data = xlsx
 	}
 	return parseXLSX(file, data)
 }

@@ -67,6 +67,10 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 		}
 		target := g.mapping
 		switch {
+		case target.Ignore:
+			gp.Name = g.salesOrg + "·" + g.tradeAccount + "·已忽略"
+			gp.Ignored = true
+			gp.Status = "ignored"
 		case target.AccountID != "":
 			if account, ok := byID[target.AccountID]; ok {
 				gp.Name = account.Name

@@ -132,7 +132,7 @@ func TestLoanHistoryMigrationKeepsAnchorLoan(t *testing.T) {
 	if history, err := st.GetLoanHistory(ctx, "acc_old"); err != nil || history != nil {
 		t.Fatalf("history = %+v, err = %v", history, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 5 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
@@ -222,7 +222,71 @@ func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 	if err != nil || updated == nil || updated.DisbursementDate != "2025-12-15" {
 		t.Fatalf("updated = %+v, err = %v", updated, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 5 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
+		t.Fatalf("version = %d, err = %v", version, err)
+	}
+}
+
+func TestEfundSourceMigrationKeepsSnapshots(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v5.db")
+	names := []string{
+		"0001_init.sql", "0002_loans.sql", "0003_loan_histories.sql",
+		"0004_loan_disbursement.sql", "0005_principal_rule.sql",
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		body, err := os.ReadFile(filepath.Join("migrations", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, stmt := range []string{
+		`INSERT INTO schema_version(version, applied_at) VALUES (1, '` + now + `'), (2, '` + now + `'),
+			(3, '` + now + `'), (4, '` + now + `'), (5, '` + now + `')`,
+		`INSERT INTO accounts(id, name, type, created_at, updated_at) VALUES ('acc_old', '旧基金账户', 'fund', '` + now + `', '` + now + `')`,
+		`INSERT INTO snapshots(id, account_id, as_of, status, source, currency, cash_cents, created_at)
+			VALUES ('snp_old', 'acc_old', '2026-01-01', 'confirmed', 'manual', 'CNY', 100, '` + now + `')`,
+		`INSERT INTO snapshot_items(snapshot_id, position, name, market_value_cents) VALUES ('snp_old', 0, '旧持仓', 100)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	snapshot, err := st.GetSnapshot(ctx, "snp_old")
+	if err != nil || len(snapshot.Items) != 1 {
+		t.Fatalf("snapshot = %+v, err = %v", snapshot, err)
+	}
+	if err := st.InsertSnapshot(ctx, &domain.Snapshot{
+		ID: "snp_efund", AccountID: "acc_old", AsOf: "2026-11-17", Status: domain.StatusConfirmed,
+		Source: domain.SourceEfundImport, Currency: "CNY", CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("insert efund snapshot: %v", err)
+	}
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }

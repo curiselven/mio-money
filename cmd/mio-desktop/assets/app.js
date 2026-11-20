@@ -5,6 +5,7 @@ if (window.location.protocol === "wails:" || window.location.hostname === "wails
 const overviewView = document.getElementById("overview-view");
 const pendingView = document.getElementById("pending-view");
 const loanView = document.getElementById("loan-view");
+const efundView = document.getElementById("efund-view");
 const navLoan = document.getElementById("nav-loan");
 const navItems = [...document.querySelectorAll(".nav-item")];
 const statusBox = document.getElementById("status");
@@ -30,8 +31,14 @@ const list = document.getElementById("list");
 const empty = document.getElementById("empty");
 const cardTemplate = document.getElementById("card");
 const loanHost = document.getElementById("loan-form-host");
+const efundFileInput = document.getElementById("efund-file");
+const efundFileName = document.getElementById("efund-file-name");
+const efundPasswordWrap = document.getElementById("efund-password-wrap");
+const efundPassword = document.getElementById("efund-password");
+const efundParse = document.getElementById("efund-parse");
+const efundResultRoot = document.getElementById("efund-result");
 
-const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "对账单", manual: "手动" };
+const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "对账单", manual: "手动", efund_import: "基金E账户" };
 const typeLabels = { cash: "现金", fund: "基金", stock: "股票", mixed: "混合", liability: "负债", other: "其他" };
 const typeColors = { stock: "#E07A5F", fund: "#6E8B5B", cash: "#D4A64A", mixed: "#C98A2B", other: "#8D7B66" };
 const principalRuleLabels = { new_schedule: "新月供本金", fixed_payment: "月供不变", old_schedule: "旧月供本金" };
@@ -49,6 +56,9 @@ let previewSeq = 0;
 let previewTimer = 0;
 let reconcileValues = new Map();
 let reconcileSuggestions = [];
+let efundFile = null;
+let efundPreview = null;
+let efundImportResult = null;
 
 async function call(method, ...args) {
   if (!globalThis.wails?.Call?.ByName) {
@@ -1273,6 +1283,440 @@ function closeLoanView() {
   navLoan.hidden = true;
 }
 
+/* ---------- efund import ---------- */
+
+function efundNode(tag, className, value) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (value != null) node.textContent = value;
+  return node;
+}
+
+function efundMetaItem(label, value, bad = false) {
+  const span = efundNode("span");
+  span.append(document.createTextNode(`${label} `));
+  span.append(efundNode("strong", bad ? "bad" : "", value));
+  return span;
+}
+
+async function efundToBase64(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+function markEfundDirty() {
+  showStatus("映射有改动，点击「保存映射」或直接导入即可保存");
+}
+
+async function parseEfundFile() {
+  if (!efundFile) return;
+  efundParse.disabled = true;
+  efundPreview = null;
+  efundImportResult = null;
+  efundResultRoot.replaceChildren();
+  showStatus("正在解析文件…");
+  let password = efundPassword.value;
+  efundPassword.value = "";
+  try {
+    const encoded = await efundToBase64(efundFile);
+    efundPreview = await call("EfundService.Preview", encoded, password, efundFile.name);
+    password = "";
+    efundImportResult = null;
+    renderEfund(efundPreview);
+    showStatus("解析完成");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+  } finally {
+    password = "";
+    efundParse.disabled = !efundFile;
+  }
+}
+
+function efundSelections() {
+  return [...efundResultRoot.querySelectorAll(".efund-map-row")].map((row) => {
+    const select = row.querySelector(".efund-select");
+    const selection = {
+      sales_org: row.dataset.sales,
+      trade_account: row.dataset.trade,
+      mode: "unmapped",
+    };
+    if (select.value === "ignore") {
+      selection.mode = "ignore";
+    } else if (select.value === "new") {
+      selection.mode = "new";
+      selection.account_name = row.querySelector(".efund-account-name").value.trim();
+    } else if (select.value.startsWith("existing:")) {
+      selection.mode = "existing";
+      selection.account_id = select.value.slice("existing:".length);
+    }
+    return selection;
+  });
+}
+
+async function saveEfundMapping(silent = false) {
+  if (!efundPreview) return false;
+  const selections = efundSelections();
+  if (selections.some((selection) => selection.mode === "new" && !selection.account_name)) {
+    showStatus("请填写新账户名称", "error");
+    return false;
+  }
+  try {
+    efundPreview = await call("EfundService.Remap", efundPreview.token, selections);
+    renderEfund(efundPreview);
+    if (!silent) showStatus("映射已保存");
+    return true;
+  } catch (error) {
+    showStatus(errorText(error), "error");
+    return false;
+  }
+}
+
+function efundModeBadge(group) {
+  if (group.mode === "ignore") return efundNode("span", "efund-tag muted-tag", "已忽略");
+  if (group.mode === "new") return efundNode("span", "efund-tag warn-tag", "新建账户");
+  if (group.mode === "existing") return efundNode("span", "efund-tag", "已关联");
+  return efundNode("span", "efund-tag warn-tag", "未映射");
+}
+
+function renderEfundGroup(group, preview) {
+  const card = efundNode("article", "efund-group");
+  const head = efundNode("div", "efund-group-head");
+  const left = efundNode("div");
+  left.append(
+    efundNode("h3", "", `${group.sales_org} · ${group.trade_account}`),
+    efundNode("p", "efund-sub", `${group.name} · ${group.fund_count} 只 · ${money(group.market_value_cents)}`),
+  );
+  if (group.top_funds.length) {
+    left.append(efundNode("p", "efund-sub", `前几只：${group.top_funds.join("、")}`));
+  }
+  head.append(left, efundModeBadge(group));
+  card.append(head);
+
+  const row = efundNode("div", "efund-map-row");
+  row.dataset.sales = group.sales_org;
+  row.dataset.trade = group.trade_account;
+  row.append(efundNode("label", "", "映射到"));
+  const select = efundNode("select", "efund-select");
+  const options = [
+    ["unmapped", "未选择"],
+    ["ignore", "本次忽略"],
+    ["new", "新建账户"],
+  ];
+  for (const [value, label] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.append(option);
+  }
+  for (const account of preview.accounts) {
+    const option = document.createElement("option");
+    option.value = `existing:${account.id}`;
+    option.textContent = `${account.name}${account.platform ? ` · ${account.platform}` : ""}`;
+    select.append(option);
+  }
+  if (group.mode === "ignore") select.value = "ignore";
+  else if (group.mode === "new") select.value = "new";
+  else if (group.mode === "existing") select.value = `existing:${group.account_id}`;
+  else select.value = "unmapped";
+  row.append(select);
+
+  const nameInput = document.createElement("input");
+  nameInput.type = "text";
+  nameInput.className = "efund-account-name";
+  nameInput.placeholder = `新账户名称（平台：${group.sales_org}）`;
+  nameInput.value = group.mode === "new" ? group.account_name : "";
+  nameInput.hidden = group.mode !== "new";
+  row.append(nameInput);
+  if (group.issue) row.append(efundNode("span", "efund-issue", group.issue));
+  card.append(row);
+
+  select.addEventListener("change", () => {
+    nameInput.hidden = select.value !== "new";
+    if (!nameInput.hidden) nameInput.focus();
+    markEfundDirty();
+  });
+  nameInput.addEventListener("input", markEfundDirty);
+  nameInput.addEventListener("change", markEfundDirty);
+
+  if (group.holdings.length) {
+    const details = efundNode("details", "efund-details");
+    details.append(efundNode("summary", "", `持仓明细（${group.holdings.length} 条）`));
+    const table = efundNode("table", "efund-holdings");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["基金", "代码", "份额", "净值", "市值", "净值日期"]) {
+      headRow.append(efundNode("th", "", label));
+    }
+    thead.append(headRow);
+    const tbody = document.createElement("tbody");
+    for (const holding of group.holdings) {
+      const tr = document.createElement("tr");
+      tr.append(
+        efundNode("td", "", holding.fund_name),
+        efundNode("td", "num", holding.fund_code),
+        efundNode("td", "num", holding.quantity),
+        efundNode("td", "num", holding.nav),
+        efundNode("td", "num", money(holding.market_value_cents)),
+        efundNode("td", "num", holding.nav_date),
+      );
+      tbody.append(tr);
+    }
+    table.append(thead, tbody);
+    details.append(table);
+    card.append(details);
+  }
+  return card;
+}
+
+function renderEfundTarget(target) {
+  const card = efundNode("article", "efund-target");
+  const head = efundNode("div", "efund-target-head");
+  const left = efundNode("div");
+  const title = efundNode("h3", "", target.account_name);
+  if (target.new_account) title.append(efundNode("span", "efund-tag warn-tag", "新建"));
+  if (target.group_count > 1) title.append(efundNode("span", "efund-tag muted-tag", `合并 ${target.group_count} 个交易账户`));
+  if (target.already_imported) title.append(efundNode("span", "efund-tag muted-tag", `已导入过（${target.imported_status}）`));
+  left.append(title);
+  left.append(efundNode("p", "efund-sub",
+    `${target.fund_count} 只基金 · ${money(target.market_value_cents)}${target.previous_as_of ? ` · 对比 ${target.previous_as_of}` : " · 无历史快照"}`));
+  head.append(left);
+  card.append(head);
+
+  const diff = efundNode("ul", "diff");
+  renderDiff(diff, target.diff);
+  card.append(diff);
+
+  if (target.holdings.length) {
+    const details = efundNode("details", "efund-details");
+    details.append(efundNode("summary", "", `账户持仓（合并后 ${target.holdings.length} 条）`));
+    const table = efundNode("table", "efund-holdings");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["基金", "代码", "份额", "市值", "备注"]) {
+      headRow.append(efundNode("th", "", label));
+    }
+    thead.append(headRow);
+    const tbody = document.createElement("tbody");
+    for (const item of target.holdings) {
+      const tr = document.createElement("tr");
+      tr.append(
+        efundNode("td", "", item.name),
+        efundNode("td", "num", item.code || ""),
+        efundNode("td", "num", item.quantity || ""),
+        efundNode("td", "num", money(item.market_value_cents)),
+        efundNode("td", "", item.note || ""),
+      );
+      tbody.append(tr);
+    }
+    table.append(thead, tbody);
+    details.append(table);
+    card.append(details);
+  }
+
+  if (target.anomalies.length) {
+    const warning = efundNode("div", "efund-warning");
+    warning.append(efundNode("strong", "", "导入后会进入待确认："));
+    for (const anomaly of target.anomalies) {
+      warning.append(efundNode("div", "", `· ${anomaly.message}`));
+    }
+    card.append(warning);
+  }
+  return card;
+}
+
+function renderEfundResults() {
+  if (!efundImportResult) return null;
+  const panel = efundNode("section", "panel efund-results");
+  panel.append(efundNode("h3", "", "导入结果"));
+  for (const result of efundImportResult.results) {
+    const row = efundNode("div", "efund-result-row");
+    const head = efundNode("div", "efund-result-head");
+    const left = efundNode("div");
+    const title = efundNode("h3", "", result.account_name);
+    const labels = {
+      applied: ["已生效", "efund-tag"],
+      pending: ["待确认", "efund-tag warn-tag"],
+      skipped: ["已跳过", "efund-tag muted-tag"],
+      failed: ["失败", "efund-tag warn-tag"],
+      undone: ["已撤销", "efund-tag muted-tag"],
+    };
+    const label = labels[result.status] || [result.status, "efund-tag muted-tag"];
+    title.append(efundNode("span", label[1], label[0]));
+    left.append(title);
+    if (result.message) left.append(efundNode("p", "efund-result-message", result.message));
+    for (const anomaly of result.anomalies || []) {
+      left.append(efundNode("p", "efund-result-message", `· ${anomaly}`));
+    }
+    head.append(left);
+
+    const actions = efundNode("div", "efund-actions");
+    if (result.status === "applied") {
+      const undo = efundNode("button", "btn", "撤销最近确认");
+      undo.type = "button";
+      undo.addEventListener("click", () => undoEfund(result));
+      actions.append(undo);
+    } else if (result.status === "pending") {
+      const go = efundNode("button", "btn", "去待确认");
+      go.type = "button";
+      go.addEventListener("click", () => showView("pending"));
+      actions.append(go);
+    }
+    row.append(head, actions);
+    panel.append(row);
+  }
+  for (const warning of efundImportResult.warnings || []) {
+    panel.append(efundNode("p", "efund-result-message", warning));
+  }
+  return panel;
+}
+
+async function importEfund() {
+  const saved = await saveEfundMapping(true);
+  if (!saved) return;
+  if (!efundPreview?.can_import) {
+    showStatus(efundPreview?.block_reason || "当前不能导入", "error");
+    return;
+  }
+  showStatus("正在导入…");
+  try {
+    efundImportResult = await call("EfundService.Import", efundPreview.token);
+    efundPreview = await call("EfundService.Refresh", efundPreview.token);
+    renderEfund(efundPreview);
+    await reloadOverview();
+    try {
+      await reloadPending();
+    } catch (_) {
+      // Pending view is refreshed on demand if it cannot be loaded now.
+    }
+    showStatus("导入完成");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+  }
+}
+
+async function undoEfund(result) {
+  try {
+    await call("EfundService.Undo", result.account_id);
+    result.status = "undone";
+    result.message = "已撤销该账户最近一次确认快照";
+    if (efundPreview) {
+      efundPreview = await call("EfundService.Refresh", efundPreview.token);
+      renderEfund(efundPreview);
+    }
+    await reloadOverview();
+    try {
+      await reloadPending();
+    } catch (_) {
+      // Ignore a pending refresh failure; the overview still updates.
+    }
+    showStatus("已撤销最近一次确认快照");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+  }
+}
+
+function renderEfund(preview) {
+  efundResultRoot.replaceChildren();
+  if (!preview) return;
+
+  const metaPanel = efundNode("section", "panel");
+  const metaHead = efundNode("div", "ph");
+  metaHead.append(efundNode("h2", "", "文件信息"), efundNode("span", "", preview.file_name));
+  metaPanel.append(metaHead);
+  const meta = efundNode("div", "efund-meta");
+  meta.append(
+    efundMetaItem("份额日期", preview.meta.share_date || "—"),
+    efundMetaItem("打印时间", preview.meta.print_time || "—"),
+  );
+  if (preview.meta.total_records == null) {
+    meta.append(efundMetaItem("记录数", `未提供，实际 ${preview.meta.actual_rows} 行`, true));
+  } else {
+    const bad = !preview.meta.records_match;
+    const mark = bad ? "✗" : "✓";
+    meta.append(efundMetaItem("记录数", `${preview.meta.total_records} / ${preview.meta.actual_rows} ${mark}`, bad));
+  }
+  if (preview.meta.nav_date_mismatch_funds > 0) {
+    meta.append(efundMetaItem("净值日期不一致", `${preview.meta.nav_date_mismatch_funds} 只`, false));
+  }
+  metaPanel.append(meta);
+
+  if (preview.warnings.length) {
+    const warnings = efundNode("ul", "efund-warnings");
+    for (const warning of preview.warnings) {
+      const text = `[${warning.severity}] ${warning.message}` +
+        (warning.severity === "blocks_write" ? "（写入时将被阻止）" : "");
+      warnings.append(efundNode("li", `efund-warning ${warning.severity}`, text));
+    }
+    metaPanel.append(warnings);
+  }
+  efundResultRoot.append(metaPanel);
+
+  const groupsPanel = efundNode("section", "panel");
+  const groupsHead = efundNode("div", "ph");
+  groupsHead.append(efundNode("h2", "", "交易账户"), efundNode("span", "", `${preview.groups.length} 个`));
+  groupsPanel.append(groupsHead);
+  for (const group of preview.groups) groupsPanel.append(renderEfundGroup(group, preview));
+  efundResultRoot.append(groupsPanel);
+
+  if (preview.targets.length) {
+    const targetsPanel = efundNode("section", "panel");
+    const targetsHead = efundNode("div", "ph");
+    targetsHead.append(
+      efundNode("h2", "", "按账户汇总"),
+      efundNode("span", "", `${money(preview.total_market_value_cents)} · ${preview.total_holding_count} 条持仓`),
+    );
+    targetsPanel.append(targetsHead);
+    const targets = efundNode("div", "efund-targets");
+    for (const target of preview.targets) targets.append(renderEfundTarget(target));
+    targetsPanel.append(targets);
+    efundResultRoot.append(targetsPanel);
+  }
+
+  const actions = efundNode("section", "panel");
+  const actionsHead = efundNode("div", "ph");
+  actionsHead.append(efundNode("h2", "", "写入"), efundNode("span", "", "走现有快照确认流程"));
+  actions.append(actionsHead);
+  if (!preview.can_import) {
+    actions.append(efundNode("p", "efund-block", preview.block_reason || "当前不能导入"));
+  } else {
+    actions.append(efundNode("p", "efund-hint", "正常会直接生效；命中异常规则会进入「待确认」。"));
+  }
+  const buttons = efundNode("div", "efund-actions");
+  const save = efundNode("button", "btn", "保存映射");
+  save.type = "button";
+  save.addEventListener("click", () => saveEfundMapping(false));
+  const run = efundNode("button", "btn pri", "导入并确认");
+  run.type = "button";
+  run.disabled = preview.blocked_by_data;
+  if (preview.block_reason) run.title = preview.block_reason;
+  run.addEventListener("click", importEfund);
+  buttons.append(save, run);
+  actions.append(buttons);
+  efundResultRoot.append(actions);
+
+  const results = renderEfundResults();
+  if (results) efundResultRoot.append(results);
+}
+
+efundFileInput.addEventListener("change", () => {
+  efundFile = efundFileInput.files?.[0] || null;
+  efundPreview = null;
+  efundImportResult = null;
+  efundResultRoot.replaceChildren();
+  efundFileName.textContent = efundFile ? efundFile.name : "未选择文件";
+  efundPasswordWrap.hidden = !(efundFile && efundFile.name.toLowerCase().endsWith(".zip"));
+  efundPassword.value = "";
+  efundParse.disabled = !efundFile;
+  if (efundFile) showStatus("文件已选择，点击「解析」");
+});
+
+efundParse.addEventListener("click", parseEfundFile);
+
 /* ---------- navigation ---------- */
 
 async function reloadOverview() {
@@ -1290,6 +1734,7 @@ async function showView(view) {
   overviewView.hidden = view !== "overview";
   pendingView.hidden = view !== "pending";
   loanView.hidden = view !== "loan";
+  efundView.hidden = view !== "efund";
   statusBox.hidden = true;
   try {
     if (view === "overview") await reloadOverview();
@@ -1306,6 +1751,7 @@ for (const item of navItems) {
 refresh.addEventListener("click", () => {
   if (currentView === "overview") showView("overview");
   else if (currentView === "pending") showView("pending");
+  else if (currentView === "efund") showStatus("导入页不需要刷新，可继续当前预览");
   else previewLoanForm();
 });
 

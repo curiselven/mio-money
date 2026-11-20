@@ -35,6 +35,8 @@ func Render(w io.Writer, p *Preview) {
 			fmt.Fprintf(w, "  对应账户：%s（已关联）\n", g.AccountName)
 		case "new":
 			fmt.Fprintf(w, "  对应账户：新组合（目标账户「%s」尚未创建）\n", g.Target)
+		case "ignored":
+			fmt.Fprintln(w, "  对应账户：已忽略")
 		default:
 			fmt.Fprintf(w, "  对应账户：未映射\n")
 		}

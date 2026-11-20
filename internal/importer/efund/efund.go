@@ -81,6 +81,7 @@ type GroupPreview struct {
 	Status           string       `json:"status"`
 	NewAccount       bool         `json:"new_account"`
 	Unmapped         bool         `json:"unmapped"`
+	Ignored          bool         `json:"ignored"`
 	FundCount        int          `json:"fund_count"`
 	MarketValueCents int64        `json:"market_value_cents"`
 	Currency         string       `json:"currency"`
