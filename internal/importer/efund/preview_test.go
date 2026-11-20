@@ -90,11 +90,52 @@ func TestPreviewMappingAndDiff(t *testing.T) {
 	if preview.Groups[1].Status != "new" || !preview.Groups[1].NewAccount {
 		t.Fatalf("new group = %+v", preview.Groups[1])
 	}
-	if !preview.Groups[2].Unmapped || preview.Groups[2].Name != salesB+"·未分组" {
+	if !preview.Groups[2].Unmapped || preview.Groups[2].Name != salesB+"·T0000009·未分组" {
 		t.Fatalf("unmapped group = %+v", preview.Groups[2])
 	}
-	if len(preview.Unmapped) != 1 || preview.Unmapped[0].TradeAccount != "T0000009" {
+	if len(preview.Unmapped) != 1 || preview.Unmapped[0].TradeAccount != "T0000009" ||
+		preview.Unmapped[0].Name != salesB+"·T0000009·未分组" {
 		t.Fatalf("unmapped = %+v", preview.Unmapped)
+	}
+}
+
+func TestPreviewAccountIDWinsWithoutNameFallback(t *testing.T) {
+	parsed, err := Parse(mappingBook(t))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	repo := fakeRepo{accounts: []domain.Account{
+		{ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund, Currency: "CNY"},
+	}}
+
+	matched, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "错误的名字", AccountID: "acc_changying"},
+	}})
+	if err != nil {
+		t.Fatalf("build by id: %v", err)
+	}
+	if matched.Groups[0].Status != "matched" || matched.Groups[0].AccountID != "acc_changying" {
+		t.Fatalf("id match = %+v", matched.Groups[0])
+	}
+
+	missing, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划", AccountID: "acc_missing"},
+	}})
+	if err != nil {
+		t.Fatalf("build missing id: %v", err)
+	}
+	group := missing.Groups[0]
+	if group.Status != "new" || group.AccountID != "" || !group.NewAccount {
+		t.Fatalf("missing id group = %+v", group)
+	}
+	found := false
+	for _, warning := range missing.Warnings {
+		if warning.Code == "account_id_not_found" && warning.Severity == SeverityWarning {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("account_id_not_found warning missing: %+v", missing.Warnings)
 	}
 }
 

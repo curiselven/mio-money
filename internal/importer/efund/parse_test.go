@@ -91,11 +91,25 @@ func TestParseWarnings(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	codes := map[string]int{}
+	severities := map[string]Severity{}
 	for _, warning := range parsed.Warnings {
 		codes[warning.Code]++
+		severities[warning.Code] = warning.Severity
 	}
 	if codes["value_mismatch"] != 1 || codes["record_count_mismatch"] != 1 || codes["currency"] != 1 {
 		t.Fatalf("warnings = %+v", parsed.Warnings)
+	}
+	if severities["value_mismatch"] != SeverityWarning ||
+		severities["record_count_mismatch"] != SeverityBlocksWrite ||
+		severities["currency"] != SeverityWarning {
+		t.Fatalf("severities = %+v", severities)
+	}
+	data, err := json.Marshal(parsed)
+	if err != nil {
+		t.Fatalf("json: %v", err)
+	}
+	if !strings.Contains(string(data), `"severity":"blocks_write"`) {
+		t.Fatalf("blocks_write severity missing from JSON: %s", data)
 	}
 	for _, warning := range parsed.Warnings {
 		if warning.Code == "value_mismatch" && warning.Row != 7 {
@@ -111,6 +125,9 @@ func TestParseWarnings(t *testing.T) {
 	Render(&text, preview)
 	if !strings.Contains(text.String(), "值") && !strings.Contains(text.String(), "相差") {
 		t.Fatalf("value warning missing from render:\n%s", text.String())
+	}
+	if !strings.Contains(text.String(), "写入时将被阻止") {
+		t.Fatalf("blocks_write note missing from render:\n%s", text.String())
 	}
 }
 

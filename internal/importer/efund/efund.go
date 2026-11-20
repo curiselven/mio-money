@@ -27,10 +27,19 @@ type Holding struct {
 	DividendMethod   string `json:"dividend_method,omitempty"`
 }
 
+type Severity string
+
+const (
+	SeverityInfo        Severity = "info"
+	SeverityWarning     Severity = "warning"
+	SeverityBlocksWrite Severity = "blocks_write"
+)
+
 type Warning struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Row     int    `json:"row,omitempty"`
+	Code     string   `json:"code"`
+	Severity Severity `json:"severity"`
+	Message  string   `json:"message"`
+	Row      int      `json:"row,omitempty"`
 }
 
 type Meta struct {
@@ -81,6 +90,7 @@ type GroupPreview struct {
 }
 
 type UnmappedGroup struct {
+	Name             string `json:"name"`
 	SalesOrg         string `json:"sales_org"`
 	TradeAccount     string `json:"trade_account"`
 	FundCount        int    `json:"fund_count"`

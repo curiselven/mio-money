@@ -2,6 +2,7 @@ package efund
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -31,19 +32,18 @@ type xlsxRun struct {
 	Text string `xml:"t"`
 }
 
-func readSheet(file string) ([]sheetRow, error) {
-	zr, err := zip.OpenReader(file)
+func readSheet(data []byte) ([]sheetRow, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return nil, fmt.Errorf("open xlsx: %w", err)
+		return nil, fmt.Errorf("打开 xlsx 失败（需要已解密的 .xlsx）: %w", err)
 	}
-	defer zr.Close()
 
-	sheetPath := workbookSheetPath(&zr.Reader)
-	shared, err := readSharedStrings(&zr.Reader)
+	sheetPath := workbookSheetPath(zr)
+	shared, err := readSharedStrings(zr)
 	if err != nil {
 		return nil, err
 	}
-	data, err := readZipFile(&zr.Reader, sheetPath)
+	sheetData, err := readZipFile(zr, sheetPath)
 	if err != nil {
 		return nil, fmt.Errorf("read sheet %s: %w", sheetPath, err)
 	}
@@ -53,7 +53,7 @@ func readSheet(file string) ([]sheetRow, error) {
 			Cells  []xlsxCell `xml:"c"`
 		} `xml:"sheetData>row"`
 	}
-	if err := xml.Unmarshal(data, &ws); err != nil {
+	if err := xml.Unmarshal(sheetData, &ws); err != nil {
 		return nil, fmt.Errorf("parse sheet: %w", err)
 	}
 

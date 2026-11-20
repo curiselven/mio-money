@@ -25,9 +25,8 @@ var requiredHeaders = []string{
 	"结算币种", "分红方式",
 }
 
-// Parse reads the first sheet of an already-decrypted xlsx export.
-func Parse(file string) (*Result, error) {
-	rows, err := readSheet(file)
+func parseXLSX(file string, data []byte) (*Result, error) {
+	rows, err := readSheet(data)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +71,7 @@ func Parse(file string) (*Result, error) {
 		}
 		if h.CurrencyCode != "CNY" {
 			res.Warnings = append(res.Warnings, Warning{
-				Code: "currency", Row: row.number,
+				Code: "currency", Severity: SeverityWarning, Row: row.number,
 				Message: fmt.Sprintf("第 %d 行结算币种「%s」不是人民币，暂不换算", row.number, h.Currency),
 			})
 		}
@@ -82,7 +81,7 @@ func Parse(file string) (*Result, error) {
 		}
 		if delta := expected - h.MarketValueCents; abs64(delta) > 1 {
 			res.Warnings = append(res.Warnings, Warning{
-				Code: "value_mismatch", Row: row.number,
+				Code: "value_mismatch", Severity: SeverityWarning, Row: row.number,
 				Message: fmt.Sprintf("第 %d 行「%s」份额×净值约 %s，与金额 %s 相差 %s",
 					row.number, h.FundName, yuanString(expected), yuanString(h.MarketValueCents), yuanString(delta)),
 			})
@@ -92,8 +91,9 @@ func Parse(file string) (*Result, error) {
 	res.Meta.ActualRows = len(res.Holdings)
 	if len(shareDates) > 1 {
 		res.Warnings = append(res.Warnings, Warning{
-			Code:    "share_date_mismatch",
-			Message: "数据行的份额日期不一致，预览按最新日期归组",
+			Code:     "share_date_mismatch",
+			Severity: SeverityWarning,
+			Message:  "数据行的份额日期不一致，预览按最新日期归组",
 		})
 	}
 	for date := range shareDates {
@@ -111,22 +111,25 @@ func Parse(file string) (*Result, error) {
 		res.Meta.RecordsMatch = total == len(res.Holdings)
 		if !res.Meta.RecordsMatch {
 			res.Warnings = append(res.Warnings, Warning{
-				Code:    "record_count_mismatch",
-				Message: fmt.Sprintf("文件写总记录数 %d，实际解析 %d 行", total, len(res.Holdings)),
+				Code:     "record_count_mismatch",
+				Severity: SeverityBlocksWrite,
+				Message:  fmt.Sprintf("文件写总记录数 %d，实际解析 %d 行", total, len(res.Holdings)),
 			})
 		}
 	} else {
 		res.Warnings = append(res.Warnings, Warning{
-			Code:    "record_count_missing",
-			Message: "尾部未找到「总记录数」，已按实际解析行数预览",
+			Code:     "record_count_missing",
+			Severity: SeverityBlocksWrite,
+			Message:  "尾部未找到「总记录数」，已按实际解析行数预览",
 		})
 	}
 	res.Meta.PrintTime = printTime
 	res.Meta.NAVDateMismatchFunds = len(navMismatch)
 	if len(navMismatch) > 0 {
 		res.Warnings = append(res.Warnings, Warning{
-			Code:    "nav_date_mismatch",
-			Message: fmt.Sprintf("%d 只基金的净值日期与份额日期不一致（QDII 常见），已按份额日期归组", len(navMismatch)),
+			Code:     "nav_date_mismatch",
+			Severity: SeverityInfo,
+			Message:  fmt.Sprintf("%d 只基金的净值日期与份额日期不一致（QDII 常见），已按份额日期归组", len(navMismatch)),
 		})
 	}
 	return res, nil

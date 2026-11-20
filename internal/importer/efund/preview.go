@@ -12,7 +12,7 @@ import (
 type group struct {
 	salesOrg     string
 	tradeAccount string
-	target       string
+	mapping      MappingEntry
 	holdings     []Holding
 }
 
@@ -30,16 +30,18 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 			return nil, err
 		}
 	}
+	byID := map[string]domain.Account{}
 	byName := map[string][]domain.Account{}
 	for _, account := range accounts {
+		byID[account.ID] = account
 		key := strings.ToLower(strings.TrimSpace(account.Name))
 		byName[key] = append(byName[key], account)
 	}
 
-	targets := map[string]string{}
+	targets := map[string]MappingEntry{}
 	if mapping != nil {
 		for _, entry := range mapping.Mappings {
-			targets[mappingKey(entry.SalesOrg, entry.TradeAccount)] = entry.Account
+			targets[mappingKey(entry.SalesOrg, entry.TradeAccount)] = entry
 		}
 	}
 	groups := groupHoldings(parsed.Holdings, targets)
@@ -57,28 +59,53 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 
 	for _, g := range groups {
 		gp := GroupPreview{
-			Name:         g.target,
 			SalesOrg:     g.salesOrg,
 			TradeAccount: g.tradeAccount,
-			Target:       g.target,
 			Currency:     "CNY",
 			Holdings:     g.holdings,
 			Status:       "unmapped",
 		}
-		if g.target == "" {
-			gp.Name = g.salesOrg + "·未分组"
-			gp.Unmapped = true
-		} else if matches := byName[strings.ToLower(g.target)]; len(matches) == 1 {
-			account := matches[0]
-			gp.AccountID = account.ID
-			gp.AccountName = account.Name
-			gp.Status = "matched"
-		} else {
-			gp.Status = "new"
-			gp.NewAccount = true
-			if len(matches) > 1 {
-				ambiguous[g.target] = true
+		target := g.mapping
+		switch {
+		case target.AccountID != "":
+			if account, ok := byID[target.AccountID]; ok {
+				gp.Name = account.Name
+				gp.Target = account.Name
+				gp.AccountID = account.ID
+				gp.AccountName = account.Name
+				gp.Status = "matched"
+			} else {
+				gp.Name = displayTarget(target)
+				gp.Target = gp.Name
+				gp.NewAccount = true
+				gp.Status = "new"
+				out.Warnings = append(out.Warnings, Warning{
+					Code:     "account_id_not_found",
+					Severity: SeverityWarning,
+					Message:  fmt.Sprintf("映射账户 ID「%s」在库中不存在，按新组合处理（不回退到名称匹配）", target.AccountID),
+				})
 			}
+		case target.Account != "":
+			matches := byName[strings.ToLower(target.Account)]
+			if len(matches) == 1 {
+				account := matches[0]
+				gp.Name = account.Name
+				gp.Target = account.Name
+				gp.AccountID = account.ID
+				gp.AccountName = account.Name
+				gp.Status = "matched"
+			} else {
+				gp.Name = target.Account
+				gp.Target = target.Account
+				gp.NewAccount = true
+				gp.Status = "new"
+				if len(matches) > 1 {
+					ambiguous[target.Account] = true
+				}
+			}
+		default:
+			gp.Name = g.salesOrg + "·" + g.tradeAccount + "·未分组"
+			gp.Unmapped = true
 		}
 
 		codes := map[string]bool{}
@@ -117,6 +144,7 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 		out.Total.MarketValueCents += gp.MarketValueCents
 		if gp.Unmapped {
 			out.Unmapped = append(out.Unmapped, UnmappedGroup{
+				Name:             gp.Name,
 				SalesOrg:         g.salesOrg,
 				TradeAccount:     g.tradeAccount,
 				FundCount:        gp.FundCount,
@@ -133,8 +161,9 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 	}
 	for target := range ambiguous {
 		out.Warnings = append(out.Warnings, Warning{
-			Code:    "account_name_ambiguous",
-			Message: fmt.Sprintf("库中有多个同名账户「%s」，未自动关联", target),
+			Code:     "account_name_ambiguous",
+			Severity: SeverityWarning,
+			Message:  fmt.Sprintf("库中有多个同名账户「%s」，未自动关联", target),
 		})
 	}
 	sort.Slice(out.Warnings, func(i, j int) bool {
@@ -146,7 +175,7 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 	return out, nil
 }
 
-func groupHoldings(holdings []Holding, targets map[string]string) []group {
+func groupHoldings(holdings []Holding, targets map[string]MappingEntry) []group {
 	order := []string{}
 	byKey := map[string]*group{}
 	for _, h := range holdings {
@@ -156,7 +185,7 @@ func groupHoldings(holdings []Holding, targets map[string]string) []group {
 			g = &group{
 				salesOrg:     h.SalesOrg,
 				tradeAccount: h.TradeAccount,
-				target:       targets[key],
+				mapping:      targets[key],
 			}
 			byKey[key] = g
 			order = append(order, key)
@@ -168,6 +197,13 @@ func groupHoldings(holdings []Holding, targets map[string]string) []group {
 		out = append(out, *byKey[key])
 	}
 	return out
+}
+
+func displayTarget(entry MappingEntry) string {
+	if entry.Account != "" {
+		return entry.Account
+	}
+	return entry.AccountID
 }
 
 func snapshotFor(accountID, asOf string, holdings []Holding) *domain.Snapshot {

@@ -50,14 +50,18 @@ func Render(w io.Writer, p *Preview) {
 	if len(p.Unmapped) > 0 {
 		fmt.Fprintln(w, "\n⚠ 未映射的交易账户")
 		for _, u := range p.Unmapped {
-			fmt.Fprintf(w, "- %s / %s：%d 只，市值 %s\n",
-				u.SalesOrg, u.TradeAccount, u.FundCount, moneyString(u.MarketValueCents, u.Currency))
+			fmt.Fprintf(w, "- %s：%d 只，市值 %s\n",
+				u.Name, u.FundCount, moneyString(u.MarketValueCents, u.Currency))
 		}
 	}
 	if len(p.Warnings) > 0 {
 		fmt.Fprintln(w, "\n校验告警")
 		for _, warning := range p.Warnings {
-			fmt.Fprintf(w, "- [%s] %s\n", warning.Code, warning.Message)
+			fmt.Fprintf(w, "- [%s/%s] %s", warning.Code, warning.Severity, warning.Message)
+			if warning.Severity == SeverityBlocksWrite {
+				fmt.Fprint(w, "（写入时将被阻止）")
+			}
+			fmt.Fprintln(w)
 		}
 	}
 }
