@@ -3,7 +3,7 @@ if (window.location.protocol === "wails:" || window.location.hostname === "wails
 }
 import { accountEditValues } from "./account_form.mjs";
 import { accountRows } from "./account_tree.mjs";
-import { groupState, importSummary, mergeResults, targetState } from "./efund_flow.mjs";
+import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
 
 const overviewView = document.getElementById("overview-view");
 const pendingView = document.getElementById("pending-view");
@@ -54,6 +54,7 @@ const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "�
 const typeLabels = { cash: "现金", fund: "基金", stock: "股票", mixed: "混合", liability: "负债", other: "其他" };
 const typeColors = { stock: "#E07A5F", fund: "#6E8B5B", cash: "#D4A64A", mixed: "#C98A2B", other: "#8D7B66" };
 const principalRuleLabels = { new_schedule: "新月供本金", fixed_payment: "月供不变", old_schedule: "旧月供本金" };
+const warningSeverityLabels = { info: "提示", warning: "注意", blocks_write: "将阻止写入" };
 const moneyFormat = new Intl.NumberFormat("zh-CN", {
   style: "currency",
   currency: "CNY",
@@ -79,6 +80,7 @@ let efundRefreshError = "";
 let efundSaveTimer = 0;
 let accountTree = null;
 let archiveArmed = false;
+let statusTimer = 0;
 
 async function call(method, ...args) {
   if (!globalThis.wails?.Call?.ByName) {
@@ -116,9 +118,20 @@ function errorText(error) {
 }
 
 function showStatus(text, kind = "ok") {
+  clearTimeout(statusTimer);
   statusBox.textContent = text;
   statusBox.className = `status ${kind}`;
   statusBox.hidden = false;
+  if (kind !== "error" && kind !== "loading") {
+    statusTimer = setTimeout(hideStatus, 4000);
+  }
+}
+
+function hideStatus() {
+  clearTimeout(statusTimer);
+  statusTimer = 0;
+  statusBox.textContent = "";
+  statusBox.hidden = true;
 }
 
 function setPendingCount(count) {
@@ -1437,7 +1450,7 @@ async function parseEfundFile() {
   efundResultRoot.replaceChildren();
   efundUpload.hidden = false;
   setEfundStep("select");
-  showStatus("正在解析文件…");
+  showStatus("正在解析文件…", "loading");
   let password = efundPassword.value;
   efundPassword.value = "";
   try {
@@ -1538,7 +1551,8 @@ function efundModeBadge(group) {
 }
 
 function efundStateBadge(state) {
-  if (state === "applied" || state === "skipped") return efundNode("span", "efund-tag ok-tag", "✓ 已导入");
+  if (state === "applied") return efundNode("span", "efund-tag ok-tag", "✓ 已导入");
+  if (state === "skipped") return efundNode("span", "efund-tag muted-tag", "之前已导入");
   if (state === "pending") return efundNode("span", "efund-tag warn-tag", "待确认");
   if (state === "failed") return efundNode("span", "efund-tag warn-tag", "导入失败");
   return null;
@@ -1794,11 +1808,16 @@ function renderEfundTarget(target, preview) {
     done.type = "button";
     done.disabled = true;
     actions.append(done);
-  } else if (state === "skipped" || state === "applied") {
-    const done = efundNode("button", "btn efund-import-run", "已导入");
+  } else if (state === "skipped") {
+    const done = efundNode("button", "btn efund-import-run", "之前已导入");
     done.type = "button";
     done.disabled = true;
     if (target.imported_status) done.title = `已在 ${target.imported_status} 中`;
+    actions.append(done);
+  } else if (state === "applied") {
+    const done = efundNode("button", "btn efund-import-run", "已导入");
+    done.type = "button";
+    done.disabled = true;
     actions.append(done);
   } else {
     const button = efundNode("button", `btn ${state === "failed" ? "" : "pri "}efund-import-run`.trim(), state === "failed" ? "重试导入这一组" : "导入并确认这一组");
@@ -1825,7 +1844,7 @@ function renderEfundResults() {
   panel.append(head);
   const body = efundNode("div", "efund-results-body");
   body.append(efundNode("p", "efund-result-message",
-    `已生效 ${count("applied")} · 待确认 ${count("pending")} · 已跳过 ${count("skipped")} · 失败 ${count("failed")} · 已撤销 ${count("undone")}`));
+    `已生效 ${count("applied")} · 待确认 ${count("pending")} · 之前已导入 ${count("skipped")} · 失败 ${count("failed")} · 已撤销 ${count("undone")}`));
   if (efundRefreshError) {
     body.append(efundNode("p", "efund-warning", efundRefreshError));
   }
@@ -1837,7 +1856,7 @@ function renderEfundResults() {
     const labels = {
       applied: ["已生效", "efund-tag"],
       pending: ["待确认", "efund-tag warn-tag"],
-      skipped: ["已跳过", "efund-tag muted-tag"],
+      skipped: ["之前已导入", "efund-tag muted-tag"],
       failed: ["失败", "efund-tag warn-tag"],
       undone: ["已撤销", "efund-tag muted-tag"],
     };
@@ -1908,7 +1927,7 @@ async function runEfundImport(action) {
   efundResultRoot.querySelectorAll("button, select, input").forEach((element) => {
     element.disabled = true;
   });
-  showStatus("正在导入…");
+  showStatus("正在导入…", "loading");
   try {
     const result = await action();
     if (!efundPreview || efundPreview.token !== token) return;
@@ -1931,7 +1950,11 @@ async function runEfundImport(action) {
     } catch (error) {
       efundRefreshError = `${efundRefreshError}${efundRefreshError ? "；" : ""}待确认刷新失败：${errorText(error)}`;
     }
-    showStatus(efundImportResult.summary || "导入完成");
+    const summary = efundPreview
+      ? importSummary(efundPreview.groups, efundPreview.targets, efundOutcomes)
+      : null;
+    if (summary?.done) hideStatus();
+    else showStatus(efundImportResult.summary || "导入完成");
   } catch (error) {
     showStatus(errorText(error), "error");
   } finally {
@@ -1940,16 +1963,15 @@ async function runEfundImport(action) {
   }
 }
 
-async function undoEfund(result) {
+async function undoEfundSnapshot(snapshotID, message, onSuccess) {
   if (efundBusy) return;
   const token = efundPreview?.token;
-  if (!token) return;
+  if (!token || !snapshotID) return;
   efundBusy = true;
   efundRefreshError = "";
   try {
-    await call("EfundService.UndoSnapshot", result.snapshot_id);
-    result.status = "undone";
-    result.message = "已撤销该次导入快照";
+    await call("EfundService.UndoSnapshot", snapshotID);
+    onSuccess?.();
     if (!efundPreview || efundPreview.token !== token) return;
     if (efundPreview) {
       try {
@@ -1970,13 +1992,29 @@ async function undoEfund(result) {
     } catch (error) {
       efundRefreshError = `${efundRefreshError}${efundRefreshError ? "；" : ""}待确认刷新失败：${errorText(error)}`;
     }
-    showStatus("已撤销本次快照");
+    showStatus(message);
   } catch (error) {
     showStatus(errorText(error), "error");
   } finally {
     efundBusy = false;
     if (efundPreview?.token === token) renderEfund(efundPreview);
   }
+}
+
+function undoEfund(result) {
+  return undoEfundSnapshot(result.snapshot_id, "已撤销本次快照", () => {
+    result.status = "undone";
+    result.message = "已撤销该次导入快照";
+  });
+}
+
+function undoPreviousEfund(entry) {
+  const { snapshotID, canUndo } = priorImportUndo(entry);
+  if (!canUndo) return;
+  const accountID = entry.outcome?.account_id || entry.target?.account_id;
+  return undoEfundSnapshot(snapshotID, "已撤销之前那次的导入，可重新导入该组", () => {
+    if (accountID) efundOutcomes.delete(accountID);
+  });
 }
 
 function efundGroupedRows(rows, state) {
@@ -2011,7 +2049,7 @@ function renderEfundComplete(preview, summary) {
     efundSummaryItem("已生效", `${counts.applied} 组`, money(counts.appliedCents), true),
     efundSummaryItem("待确认", `${counts.pending} 组`, "需要逐条确认"),
     efundSummaryItem("已忽略", `${counts.ignored} 组`, "未写入数据"),
-    efundSummaryItem("跳过 / 失败", `${counts.skipped + counts.failed} 组`, "未改变现有快照"),
+    efundSummaryItem("之前已导入 / 失败", `${counts.skipped + counts.failed} 组`, "未改变现有快照"),
   );
   panel.append(totals);
   if (efundRefreshError) panel.append(efundNode("p", "efund-warning", efundRefreshError));
@@ -2065,15 +2103,31 @@ function renderEfundComplete(preview, summary) {
 
   const skipped = efundGroupedRows(summary.rows, "skipped");
   if (skipped.length) {
-    panel.append(efundNode("h3", "complete-group-title", `已跳过 · ${skipped.length} 个目标`));
+    panel.append(efundNode("h3", "complete-group-title", `之前已导入 · ${skipped.length} 个目标`));
   }
   for (const entry of skipped) {
     const row = efundNode("div", "efund-result-row");
+    const headRow = efundNode("div", "efund-result-head");
+    const left = efundNode("div");
     const title = efundNode("h3", "", entry.name);
-    title.append(efundNode("span", "efund-tag muted-tag", "已导入"));
-    row.append(title);
-    const message = entry.message || entry.target?.imported_status || "该账户已有同日期快照，已跳过";
-    row.append(efundNode("p", "efund-result-message", message));
+    title.append(efundNode("span", "efund-tag muted-tag", "之前已导入"));
+    left.append(title);
+    const message = entry.message || entry.target?.imported_status || "之前已导入：该账户已有同日期快照";
+    left.append(efundNode("p", "efund-result-message", message));
+    const prior = priorImportUndo(entry);
+    if (prior.source && !prior.canUndo) {
+      left.append(efundNode("p", "efund-result-message", "该日快照来自其他来源，不在这里撤销"));
+    }
+    headRow.append(left);
+    const actions = efundNode("div", "efund-actions");
+    if (prior.canUndo) {
+      const undo = efundNode("button", "btn", "撤销之前导入");
+      undo.type = "button";
+      undo.disabled = efundBusy;
+      undo.addEventListener("click", () => undoPreviousEfund(entry));
+      actions.append(undo);
+    }
+    row.append(headRow, actions);
     panel.append(row);
   }
 
@@ -2142,9 +2196,12 @@ function renderEfund(preview) {
   if (preview.warnings.length) {
     const warnings = efundNode("ul", "efund-warnings");
     for (const warning of preview.warnings) {
-      const text = `[${warning.severity}] ${warning.message}` +
-        (warning.severity === "blocks_write" ? "（写入时将被阻止）" : "");
-      warnings.append(efundNode("li", `efund-warning ${warning.severity}`, text));
+      const item = efundNode("li", `efund-warning ${warning.severity}`);
+      item.append(
+        efundNode("span", "efund-warning-label", warningSeverityLabels[warning.severity] || "提示"),
+        document.createTextNode(warning.message),
+      );
+      warnings.append(item);
     }
     metaPanel.append(warnings);
   }
@@ -2484,7 +2541,7 @@ async function showView(view) {
   loanView.hidden = view !== "loan";
   efundView.hidden = view !== "efund";
   accountsView.hidden = view !== "accounts";
-  statusBox.hidden = true;
+  hideStatus();
   try {
     if (view === "overview") await reloadOverview();
     else if (view === "pending") await reloadPending();

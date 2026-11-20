@@ -72,21 +72,23 @@ type EfundGroupPreview struct {
 }
 
 type EfundTargetPreview struct {
-	Key              string           `json:"key"`
-	AccountID        string           `json:"account_id,omitempty"`
-	AccountName      string           `json:"account_name"`
-	GroupCount       int              `json:"group_count"`
-	FundCount        int              `json:"fund_count"`
-	MarketValueCents int64            `json:"market_value_cents"`
-	PreviousAsOf     string           `json:"previous_as_of,omitempty"`
-	Diff             domain.Diff      `json:"diff"`
-	Anomalies        []domain.Anomaly `json:"anomalies"`
-	Holdings         []domain.Item    `json:"holdings"`
-	AlreadyImported  bool             `json:"already_imported"`
-	ImportedStatus   string           `json:"imported_status,omitempty"`
-	CashCents        *int64           `json:"cash_cents,omitempty"`
-	mappingKeys      []string
-	tradeAccounts    []string
+	Key                    string           `json:"key"`
+	AccountID              string           `json:"account_id,omitempty"`
+	AccountName            string           `json:"account_name"`
+	GroupCount             int              `json:"group_count"`
+	FundCount              int              `json:"fund_count"`
+	MarketValueCents       int64            `json:"market_value_cents"`
+	PreviousAsOf           string           `json:"previous_as_of,omitempty"`
+	Diff                   domain.Diff      `json:"diff"`
+	Anomalies              []domain.Anomaly `json:"anomalies"`
+	Holdings               []domain.Item    `json:"holdings"`
+	AlreadyImported        bool             `json:"already_imported"`
+	ImportedStatus         string           `json:"imported_status,omitempty"`
+	ExistingSnapshotID     string           `json:"existing_snapshot_id,omitempty"`
+	ExistingSnapshotSource domain.Source    `json:"existing_snapshot_source,omitempty"`
+	CashCents              *int64           `json:"cash_cents,omitempty"`
+	mappingKeys            []string
+	tradeAccounts          []string
 }
 
 type EfundPreview struct {
@@ -120,13 +122,15 @@ type EfundSelection struct {
 }
 
 type EfundImportAccountResult struct {
-	AccountID        string   `json:"account_id,omitempty"`
-	AccountName      string   `json:"account_name"`
-	Status           string   `json:"status"`
-	SnapshotID       string   `json:"snapshot_id,omitempty"`
-	Anomalies        []string `json:"anomalies,omitempty"`
-	Message          string   `json:"message,omitempty"`
-	MarketValueCents int64    `json:"market_value_cents"`
+	AccountID              string        `json:"account_id,omitempty"`
+	AccountName            string        `json:"account_name"`
+	Status                 string        `json:"status"`
+	SnapshotID             string        `json:"snapshot_id,omitempty"`
+	Anomalies              []string      `json:"anomalies,omitempty"`
+	Message                string        `json:"message,omitempty"`
+	ExistingSnapshotID     string        `json:"existing_snapshot_id,omitempty"`
+	ExistingSnapshotSource domain.Source `json:"existing_snapshot_source,omitempty"`
+	MarketValueCents       int64         `json:"market_value_cents"`
 }
 
 type EfundImportResult struct {
@@ -317,14 +321,16 @@ func (s *EfundService) importTargets(token, onlyKey string) (*EfundImportResult,
 		if target.AlreadyImported {
 			result.Results = append(result.Results, EfundImportAccountResult{
 				AccountID: target.AccountID, AccountName: target.AccountName,
-				Status:           "skipped",
-				Message:          "已跳过：该账户在 " + session.parsed.Meta.ShareDate + " 已有 " + target.ImportedStatus + " 快照",
-				MarketValueCents: target.MarketValueCents,
+				Status:                 "skipped",
+				Message:                "之前已导入：该账户在 " + session.parsed.Meta.ShareDate + " 已有 " + target.ImportedStatus + " 快照",
+				ExistingSnapshotID:     target.ExistingSnapshotID,
+				ExistingSnapshotSource: target.ExistingSnapshotSource,
+				MarketValueCents:       target.MarketValueCents,
 			})
 			continue
 		}
 		accountID := target.AccountID
-		status, imported, err := s.conflictStatus(ctx, accountID, session.parsed.Meta.ShareDate)
+		existing, err := s.conflictSnapshot(ctx, accountID, session.parsed.Meta.ShareDate)
 		if err != nil {
 			result.Results = append(result.Results, EfundImportAccountResult{
 				AccountID: accountID, AccountName: target.AccountName,
@@ -332,10 +338,12 @@ func (s *EfundService) importTargets(token, onlyKey string) (*EfundImportResult,
 			})
 			continue
 		}
-		if imported {
+		if existing != nil {
+			existingID, existingSource, status := efundSnapshotFields(existing)
 			result.Results = append(result.Results, EfundImportAccountResult{
 				AccountID: accountID, AccountName: target.AccountName,
-				Status: "skipped", Message: "已跳过：该账户在 " + session.parsed.Meta.ShareDate + " 已有 " + status + " 快照",
+				Status: "skipped", Message: "之前已导入：该账户在 " + session.parsed.Meta.ShareDate + " 已有 " + status + " 快照",
+				ExistingSnapshotID: existingID, ExistingSnapshotSource: existingSource,
 				MarketValueCents: target.MarketValueCents,
 			})
 			continue
@@ -434,24 +442,42 @@ func (s *EfundService) loadMapping() (*efund.Mapping, error) {
 	return mapping, err
 }
 
-func (s *EfundService) conflictStatus(ctx context.Context, accountID, asOf string) (string, bool, error) {
+func (s *EfundService) conflictSnapshot(ctx context.Context, accountID, asOf string) (*domain.Snapshot, error) {
 	confirmed, err := s.st.ListConfirmed(ctx, accountID, asOf, asOf)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
-	for _, snapshot := range confirmed {
-		return string(snapshot.Source) + " / 已确认", true, nil
+	if len(confirmed) > 0 {
+		return confirmed[0], nil
 	}
 	pending, err := s.st.ListPending(ctx)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
 	for _, snapshot := range pending {
 		if snapshot.AccountID == accountID && snapshot.AsOf == asOf {
-			return string(snapshot.Source) + " / 待确认", true, nil
+			return snapshot, nil
 		}
 	}
-	return "", false, nil
+	return nil, nil
+}
+
+func efundSnapshotFields(snapshot *domain.Snapshot) (string, domain.Source, string) {
+	if snapshot == nil {
+		return "", "", ""
+	}
+	status := string(snapshot.Status)
+	switch snapshot.Status {
+	case domain.StatusConfirmed:
+		status = "已确认"
+	case domain.StatusPending:
+		status = "待确认"
+	case domain.StatusRejected:
+		status = "已丢弃"
+	case domain.StatusUndone:
+		status = "已撤销"
+	}
+	return snapshot.ID, snapshot.Source, string(snapshot.Source) + " / " + status
 }
 
 func findMappingEntry(mapping *efund.Mapping, key string) *efund.MappingEntry {

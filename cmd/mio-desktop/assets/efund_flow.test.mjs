@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { groupState, importSummary, mergeResults, targetState } from "./efund_flow.mjs";
+import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
 
 const targets = [
   { key: "id:acc_a", account_id: "acc_a", account_name: "示例账户 A", already_imported: false },
@@ -45,5 +45,15 @@ assert.equal(targetState({ already_imported: true }, { status: "undone" }), "ope
 
 assert.equal(importSummary([groups[2]], targets, new Map()).done, true);
 assert.equal(importSummary([], targets, new Map()).done, false);
+
+assert.deepEqual(
+  priorImportUndo({ target: { existing_snapshot_id: "snap_efund", existing_snapshot_source: "efund_import" } }),
+  { source: "efund_import", snapshotID: "snap_efund", canUndo: true },
+);
+assert.deepEqual(
+  priorImportUndo({ outcome: { existing_snapshot_id: "snap_mcp", existing_snapshot_source: "mcp" } }),
+  { source: "mcp", snapshotID: "snap_mcp", canUndo: false },
+);
+assert.equal(priorImportUndo({ target: { existing_snapshot_source: "efund_import" } }).canUndo, false);
 
 console.log("efund_flow: ok");

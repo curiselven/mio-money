@@ -45,6 +45,7 @@ done
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BUILD_DIR="$ROOT/build"
 APP_PATH="$BUILD_DIR/$APP_NAME"
+ICON_TMP="$BUILD_DIR/icon-work"
 DEST_APP="$PREFIX/$APP_NAME"
 DB_DIR="$HOME/Library/Application Support/MioMoney"
 DB_PATH="$DB_DIR/mio.db"
@@ -57,6 +58,18 @@ run() {
   if [[ "$DRY_RUN" -eq 0 ]]; then
     "$@"
   fi
+}
+
+remove_build_path() {
+  local target="$1"
+  case "$target" in
+    "$BUILD_DIR"/*) ;;
+    *)
+      echo "拒绝删除仓库 build/ 之外的路径: $target" >&2
+      exit 1
+      ;;
+  esac
+  run rm -rf "$target"
 }
 
 step() {
@@ -94,6 +107,10 @@ else
   echo "  未找到 ${DB_PATH}，跳过数据库备份"
 fi
 
+step "清理旧构建产物"
+remove_build_path "$APP_PATH"
+remove_build_path "$ICON_TMP"
+
 step "构建 CLI 和桌面应用"
 run mkdir -p "$BUILD_DIR" "$ROOT/bin" "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
 run go build -o "$ROOT/bin/mio" ./cmd/mio
@@ -112,7 +129,6 @@ if [[ ! -f "$ICON" ]]; then
   echo "图标不存在: ${ICON}；可用 --icon <path> 指定。" >&2
   exit 1
 fi
-ICON_TMP="$BUILD_DIR/icon-work"
 ICONSET="$ICON_TMP/icon.iconset"
 run mkdir -p "$ICONSET"
 if [[ "$ICON" == *.icns ]]; then
@@ -145,6 +161,29 @@ else
   run sips -z 1024 1024 "$PNG" --out "$ICONSET/icon_512x512@2x.png"
   run iconutil -c icns "$ICONSET" -o "$APP_PATH/Contents/Resources/Mio.icns"
 fi
+remove_build_path "$ICON_TMP"
+
+step "校验应用图标"
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  ICON_FILE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$APP_PATH/Contents/Info.plist")"
+else
+  echo "  \$ /usr/libexec/PlistBuddy -c \"Print :CFBundleIconFile\" $APP_PATH/Contents/Info.plist"
+  ICON_FILE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$ROOT/packaging/macos/Info.plist")"
+fi
+case "$ICON_FILE" in
+  *.icns) ICON_BASENAME="$ICON_FILE" ;;
+  *) ICON_BASENAME="$ICON_FILE.icns" ;;
+esac
+echo "  Info.plist CFBundleIconFile: $ICON_BASENAME"
+if [[ "$DRY_RUN" -eq 0 ]]; then
+  icons=("$APP_PATH/Contents/Resources/"*.icns)
+  if [[ ! -f "$APP_PATH/Contents/Resources/$ICON_BASENAME" || "${#icons[@]}" -ne 1 || "$(basename "${icons[0]}")" != "$ICON_BASENAME" ]]; then
+    echo "图标校验失败：Resources 中应只有 $ICON_BASENAME。" >&2
+    exit 1
+  fi
+else
+  echo "  \$ 校验 $APP_PATH/Contents/Resources 中只有 $ICON_BASENAME"
+fi
 
 step "Ad-hoc 签名"
 run codesign --force --deep -s - "$APP_PATH"
@@ -162,6 +201,16 @@ step "安装新应用"
 run mkdir -p "$PREFIX"
 run ditto "$APP_PATH" "$DEST_APP"
 run xattr -dr com.apple.quarantine "$DEST_APP"
+
+step "刷新应用注册"
+run touch "$DEST_APP"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ -x "$LSREGISTER" ]]; then
+  run "$LSREGISTER" -f "$DEST_APP"
+else
+  echo "  未找到 lsregister，跳过应用注册刷新"
+fi
+echo "  若 Dock 仍显示旧图标，退出并重新打开 Mio。"
 
 step "完成"
 echo "  Mio.app: $DEST_APP"

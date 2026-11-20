@@ -793,10 +793,37 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   font-size: var(--text-sm);
 }
 
+.efund-warning-label {
+  display: inline-block;
+  margin-right: var(--space-1-5);
+  padding: 0 var(--space-1-5);
+  border-radius: var(--radius-pill);
+  background: var(--amber-bg);
+  color: var(--amber-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.efund-warning.info {
+  border-color: var(--line);
+  background: var(--surface-note);
+  color: var(--ink-warm);
+}
+
+.efund-warning.info .efund-warning-label {
+  background: var(--surface-muted);
+  color: var(--ink-warm);
+}
+
 .efund-warning.blocks_write {
   border-color: var(--border-danger);
   background: var(--surface-danger);
   color: var(--red);
+}
+
+.efund-warning.blocks_write .efund-warning-label {
+  background: var(--red);
+  color: var(--white);
 }
 
 .efund-group {

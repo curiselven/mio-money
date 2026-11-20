@@ -214,16 +214,21 @@
 |---|---|---|
 | 成功 / 一般提示 | `.status`（默认） | 顶部暖色轻提示条，文案确认结果；导入完成用面板汇总，不靠一闪而过的 toast |
 | 错误 | `.status.error`、`.efund-issue`、`.efund-block` | `--surface-danger`/`--red`；文案说明原因和下一步 |
-| 警告 | `.efund-warning`、`.efund-tag.warn-tag` | `--surface-warn`/`--border-warn`/`--amber-deep`；`blocks_write` 用红色并说明「写入时将被阻止」 |
+| 信息 | `.efund-warning.info` | `--surface-note`/`--line`/`--ink-warm`；小标签「提示」 |
+| 警告 | `.efund-warning`、`.efund-tag.warn-tag` | `--surface-warn`/`--border-warn`/`--amber-deep`；小标签「注意」 |
+| 阻止写入 | `.efund-warning.blocks_write` | `--surface-danger`/`--border-danger`/`--red`；小标签「将阻止写入」 |
 | 成功徽标 | `.efund-tag.ok-tag` | 「✓ 已导入」 |
 | 空状态 | `.empty` | 居中、`--muted`、一句话说明为什么空、下一步做什么 |
 | 加载 | disabled 控件 + `.status` | 文案「正在解析文件…」「正在导入…」；按钮保持宽度，避免跳动 |
 
+导入告警行使用 `.efund-warning-label` 显示严重程度，不显示 `[info]`、`[warning]` 等原始标记。
+顶部 `.status` 普通提示 4 秒后自动隐藏，加载提示保留到结果替换，错误保留到下一次操作或切换页面；导入完成态用面板汇总，不再重复横幅。
+
 ### 导入完成态
 
 - 所有组已生效、进入待确认或已忽略后，导入页切换为「导入完成」视图。
-- 摘要四项：已生效组数与金额合计、待确认组数、已忽略组数、跳过/失败组数。
-- 已生效行提供「撤销」（按 snapshot），待确认行提供「去待确认」。
+- 摘要四项：已生效组数与金额合计、待确认组数、已忽略组数、之前已导入/失败组数。
+- 已生效行提供「撤销」（按 snapshot）；之前已导入且来源为 `efund_import` 的行提供「撤销之前导入」，其他来源只说明不在这里撤销；待确认行提供「去待确认」。
 - 底部操作：`回首页`、有待确认时的 `去待确认`、`再导入一个文件`。
 - 离开导入页、回首页或再导入时，清空文件、密码、预览 token 与会话结果。
 

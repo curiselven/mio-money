@@ -34,6 +34,12 @@ export function mergeResults(outcomes, results) {
   return outcomes;
 }
 
+export function priorImportUndo(entry) {
+  const source = entry?.outcome?.existing_snapshot_source || entry?.target?.existing_snapshot_source || "";
+  const snapshotID = entry?.outcome?.existing_snapshot_id || entry?.target?.existing_snapshot_id || "";
+  return { source, snapshotID, canUndo: source === "efund_import" && Boolean(snapshotID) };
+}
+
 export function importSummary(groups, targets, outcomes) {
   const rows = (groups || []).map((group) => ({ group, ...groupState(group, targets, outcomes) }));
   const counts = { applied: 0, appliedCents: 0, pending: 0, ignored: 0, skipped: 0, failed: 0 };

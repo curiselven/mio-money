@@ -152,17 +152,19 @@ func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping
 			AccountID: target.accountID, AsOf: parsed.Meta.ShareDate,
 			Source: domain.SourceEfundImport, Currency: "CNY", CashCents: cash, Items: items,
 		}
-		status, imported, err := s.conflictStatus(ctx, target.accountID, parsed.Meta.ShareDate)
+		existing, err := s.conflictSnapshot(ctx, target.accountID, parsed.Meta.ShareDate)
 		if err != nil {
 			return nil, err
 		}
+		existingID, existingSource, status := efundSnapshotFields(existing)
 		targetView := EfundTargetPreview{
 			Key: "id:" + target.accountID, AccountID: target.accountID,
 			AccountName: target.accountName, GroupCount: len(target.groups),
 			FundCount: len(items), MarketValueCents: sumItems(items),
 			PreviousAsOf: previousAsOf(previous), Diff: domain.ComputeDiff(previous, next),
 			Anomalies: domain.StructuredAnomalies(previous, next, &account, s.svc.Threshold()),
-			Holdings:  items, AlreadyImported: imported, ImportedStatus: status,
+			Holdings:  items, AlreadyImported: existing != nil, ImportedStatus: status,
+			ExistingSnapshotID: existingID, ExistingSnapshotSource: existingSource,
 			CashCents: cash, mappingKeys: target.mappingKeys, tradeAccounts: target.tradeAccounts,
 		}
 		preview.Targets = append(preview.Targets, targetView)
@@ -423,9 +425,9 @@ func summarizeImportResult(result *EfundImportResult) {
 	case result.Failed > 0:
 		result.Summary = "部分失败"
 	case result.Skipped == total && total > 0:
-		result.Summary = "全部跳过"
+		result.Summary = "全部之前已导入"
 	case result.Skipped > 0:
-		result.Summary = "部分成功，部分跳过"
+		result.Summary = "部分成功，部分之前已导入"
 	case result.Pending > 0:
 		result.Summary = fmt.Sprintf("全部成功，其中 %d 个待确认", result.Pending)
 	default:

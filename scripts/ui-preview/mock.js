@@ -243,6 +243,7 @@
     { id: "fund_core", name: "核心基金组合", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "基金E账户", has_children: false },
     { id: "fund_pending", name: "稳健配置组合", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "基金E账户", has_children: false },
     { id: "fund_done", name: "旧配置组合", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "基金E账户", has_children: false },
+    { id: "fund_legacy", name: "旧日基金账户", type: "fund", currency: "CNY", has_children: false },
     { id: "fund_spare", name: "备用基金账户", type: "fund", currency: "CNY", has_children: false },
     { id: "mixed_top", name: "混合策略账户", type: "mixed", currency: "CNY", has_children: false },
   ];
@@ -357,6 +358,22 @@
         holding(10, "000010", "虚构测试基金", "1000.00", "1.2340", w(1234)),
       ],
     },
+    {
+      sales_org: "旧日券商",
+      trade_account: "90000007",
+      name: "林澈",
+      mode: "existing",
+      account_id: "fund_legacy",
+      account_name: "旧日基金账户",
+      direct: true,
+      ignored: false,
+      fund_count: 1,
+      market_value_cents: w(31500),
+      top_funds: ["虚构旧日混合"],
+      holdings: [
+        holding(11, "000011", "虚构旧日混合", "21000.00", "1.5000", w(31500)),
+      ],
+    },
   ];
 
   const targets = [
@@ -417,6 +434,8 @@
       previous_as_of: "2026-10-01",
       already_imported: true,
       imported_status: "efund_import / 待确认",
+      existing_snapshot_id: "snap_pending_01",
+      existing_snapshot_source: "efund_import",
       diff: {
         ...emptyDiff,
         total_before_cents: w(41206.66),
@@ -435,10 +454,32 @@
       previous_as_of: "2026-10-01",
       already_imported: true,
       imported_status: "efund_import / 已确认",
+      existing_snapshot_id: "snap_done_01",
+      existing_snapshot_source: "efund_import",
       diff: {
         ...emptyDiff,
         total_before_cents: w(22890),
         total_after_cents: w(22890),
+      },
+      anomalies: [],
+      holdings: [],
+    },
+    {
+      key: "id:fund_legacy",
+      account_id: "fund_legacy",
+      account_name: "旧日基金账户",
+      group_count: 1,
+      fund_count: 1,
+      market_value_cents: w(31500),
+      previous_as_of: "2026-10-01",
+      already_imported: true,
+      imported_status: "mcp / 已确认",
+      existing_snapshot_id: "snap_legacy_01",
+      existing_snapshot_source: "mcp",
+      diff: {
+        ...emptyDiff,
+        total_before_cents: w(31500),
+        total_after_cents: w(31500),
       },
       anomalies: [],
       holdings: [],
@@ -459,6 +500,7 @@
     warnings: [
       { code: "nav_date_mismatch", severity: "info", message: "1 只 QDII 基金净值日期与份额日期不一致" },
       { code: "value_mismatch", severity: "warning", message: "云帆基金销售有限公司合计金额相差 0.01 元" },
+      { code: "record_count_mismatch", severity: "blocks_write", message: "文件记录数与实际行数不一致，写入时将被阻止" },
     ],
     groups: previewGroups,
     targets,
@@ -466,7 +508,7 @@
     can_import: true,
     block_reason: "",
     blocked_by_data: false,
-    total_market_value_cents: w(147755.21),
+    total_market_value_cents: w(179255.21),
     file_total_cents: w(158865.75),
     ignored_total_cents: w(1234),
     unmapped_total_cents: w(9876.54),
@@ -484,31 +526,47 @@
   donePreview.targets = donePreview.targets.map((target) => ({
     ...target,
     already_imported: true,
-    imported_status: target.account_id === "fund_spare" || target.account_id === "fund_pending"
-      ? "efund_import / 待确认"
-      : "efund_import / 已确认",
+    imported_status: target.account_id === "fund_legacy"
+      ? "mcp / 已确认"
+      : target.account_id === "fund_spare" || target.account_id === "fund_pending"
+        ? "efund_import / 待确认"
+        : "efund_import / 已确认",
   }));
   donePreview.can_import = false;
 
   let importFinished = false;
+  const undoneSnapshots = new Set();
+
+  function currentPreview() {
+    const base = importFinished ? donePreview : preview;
+    if (!undoneSnapshots.size) return base;
+    const copy = JSON.parse(JSON.stringify(base));
+    copy.targets = copy.targets.map((target) => undoneSnapshots.has(target.existing_snapshot_id)
+      ? { ...target, already_imported: false, imported_status: "", existing_snapshot_id: "", existing_snapshot_source: "" }
+      : target);
+    copy.can_import = true;
+    copy.block_reason = "";
+    return copy;
+  }
 
   const importResult = {
-    summary: "本次导入：1 组生效，2 组待确认，1 组跳过",
+    summary: "本次导入：1 组生效，2 组待确认，2 组之前已导入",
     applied: 1,
     pending: 2,
-    skipped: 1,
+    skipped: 2,
     failed: 0,
     results: [
       { account_id: "fund_core", account_name: "核心基金组合", status: "applied", snapshot_id: "snap_mock_01", market_value_cents: w(68420.55) },
       { account_id: "fund_spare", account_name: "备用基金账户", status: "pending", message: "进入待确认", anomalies: ["账户总市值相对上次变化 32.4%，超过阈值 20%"], market_value_cents: w(15238) },
       { account_id: "fund_pending", account_name: "稳健配置组合", status: "pending", message: "已存在待确认快照", market_value_cents: w(41206.66) },
-      { account_id: "fund_done", account_name: "旧配置组合", status: "skipped", message: "该账户已有同日期快照，已跳过", market_value_cents: w(22890) },
+      { account_id: "fund_done", account_name: "旧配置组合", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 已确认 快照", existing_snapshot_id: "snap_done_01", existing_snapshot_source: "efund_import", market_value_cents: w(22890) },
+      { account_id: "fund_legacy", account_name: "旧日基金账户", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 mcp / 已确认 快照", existing_snapshot_id: "snap_legacy_01", existing_snapshot_source: "mcp", market_value_cents: w(31500) },
     ],
   };
 
   globalThis.wails = {
     Call: {
-      async ByName(rawName) {
+      async ByName(rawName, ...args) {
         const name = rawName.replace(/^main\./, "");
         switch (name) {
           case "OverviewService.Get":
@@ -525,9 +583,11 @@
             importFinished = true;
             return importResult;
           case "EfundService.Refresh":
-            return importFinished ? donePreview : preview;
-          case "EfundService.ClearSession":
+            return currentPreview();
           case "EfundService.UndoSnapshot":
+            undoneSnapshots.add(args[0]);
+            return null;
+          case "EfundService.ClearSession":
           case "PendingService.Approve":
           case "PendingService.Reject":
             return null;

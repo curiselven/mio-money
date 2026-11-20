@@ -182,11 +182,11 @@ func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range again.Results {
-		if item.Status != "skipped" || !strings.Contains(item.Message, "已跳过") {
+		if item.Status != "skipped" || !strings.Contains(item.Message, "之前已导入") {
 			t.Fatalf("repeat import = %+v", again)
 		}
 	}
-	if again.Summary != "全部跳过" || again.Skipped != 2 {
+	if again.Summary != "全部之前已导入" || again.Skipped != 2 {
 		t.Fatalf("repeat summary = %+v", again)
 	}
 	if err := h.service.UndoSnapshot(result.Results[0].SnapshotID); err != nil {
@@ -516,12 +516,20 @@ func TestEfundDesktopConflictsWithAnySource(t *testing.T) {
 	if !preview.Targets[0].AlreadyImported || !strings.Contains(preview.Targets[0].ImportedStatus, "mcp") {
 		t.Fatalf("target = %+v", preview.Targets[0])
 	}
+	if preview.Targets[0].ExistingSnapshotID != prior.SnapshotID ||
+		preview.Targets[0].ExistingSnapshotSource != domain.SourceMCP {
+		t.Fatalf("target snapshot = %+v", preview.Targets[0])
+	}
 	result, err := h.service.Import(preview.Token)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Results[0].Status != "skipped" || !strings.Contains(result.Results[0].Message, "mcp") {
 		t.Fatalf("result = %+v", result)
+	}
+	if result.Results[0].ExistingSnapshotID != prior.SnapshotID ||
+		result.Results[0].ExistingSnapshotSource != domain.SourceMCP {
+		t.Fatalf("result snapshot = %+v", result.Results[0])
 	}
 }
 
@@ -558,6 +566,70 @@ func TestEfundDesktopConflictsWithPendingOtherSource(t *testing.T) {
 	}
 	if result.Results[0].Status != "skipped" {
 		t.Fatalf("result = %+v", result)
+	}
+	if result.Results[0].ExistingSnapshotSource != domain.SourceMCP ||
+		result.Results[0].ExistingSnapshotID == "" {
+		t.Fatalf("result snapshot = %+v", result.Results[0])
+	}
+}
+
+func TestEfundDesktopUndoPreviouslyImportedEfundSnapshot(t *testing.T) {
+	h := newEfundHarness(t)
+	account := h.account(t, "已导入账户")
+	prior, err := h.svc.Submit(context.Background(), domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-17", Source: domain.SourceEfundImport,
+		Items: []domain.Item{{Name: "示例成长混合", Code: "000216", Quantity: "100", MarketValueCents: 10_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Confirm(context.Background(), prior.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "previous-import.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := preview.Targets[0]
+	if !target.AlreadyImported || target.ExistingSnapshotID != prior.SnapshotID ||
+		target.ExistingSnapshotSource != domain.SourceEfundImport {
+		t.Fatalf("target = %+v", target)
+	}
+	result, err := h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Status != "skipped" || result.Results[0].ExistingSnapshotID != prior.SnapshotID ||
+		result.Results[0].ExistingSnapshotSource != domain.SourceEfundImport {
+		t.Fatalf("result = %+v", result.Results[0])
+	}
+	if err := h.service.UndoSnapshot(prior.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Refresh(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Targets[0].AlreadyImported || preview.Targets[0].ExistingSnapshotID != "" {
+		t.Fatalf("after undo target = %+v", preview.Targets[0])
+	}
+	result, err = h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Status != "applied" {
+		t.Fatalf("reimport = %+v", result.Results[0])
 	}
 }
 
@@ -603,7 +675,7 @@ func TestEfundDesktopPerTargetImport(t *testing.T) {
 	if again.Results[0].Status != "skipped" {
 		t.Fatalf("duplicate target = %+v", again)
 	}
-	if again.Summary != "全部跳过" {
+	if again.Summary != "全部之前已导入" {
 		t.Fatalf("duplicate summary = %+v", again)
 	}
 }
