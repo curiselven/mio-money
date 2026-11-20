@@ -64,6 +64,20 @@ func (h *efundHarness) account(t *testing.T, name string) *domain.Account {
 	return account
 }
 
+func TestEfundClearSession(t *testing.T) {
+	h := newEfundHarness(t)
+	h.service.session = &efundSession{token: "token-a"}
+	if err := h.service.ClearSession("token-b"); err != nil || h.service.session == nil {
+		t.Fatalf("wrong token should keep session: %v", err)
+	}
+	if err := h.service.ClearSession("token-a"); err != nil || h.service.session != nil {
+		t.Fatalf("matching token should clear session: %v", err)
+	}
+	if err := h.service.ClearSession("token-a"); err != nil {
+		t.Fatalf("repeated clear should be idempotent: %v", err)
+	}
+}
+
 func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 	h := newEfundHarness(t)
 	existing := h.account(t, "已有账户")

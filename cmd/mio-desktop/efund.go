@@ -398,6 +398,16 @@ func (s *EfundService) UndoSnapshot(snapshotID string) error {
 	return err
 }
 
+// ClearSession drops the in-memory preview; it does not touch the database or mapping file.
+func (s *EfundService) ClearSession(token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != nil && token != "" && s.session.token == token {
+		s.session = nil
+	}
+	return nil
+}
+
 func (s *EfundService) applyMappingWarning(preview *EfundPreview) {
 	if s.session == nil || s.session.mappingErr == "" {
 		return

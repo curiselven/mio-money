@@ -2,6 +2,8 @@ if (window.location.protocol === "wails:" || window.location.hostname === "wails
   await import("/wails/runtime.js");
 }
 import { accountEditValues } from "./account_form.mjs";
+import { accountRows } from "./account_tree.mjs";
+import { groupState, importSummary, mergeResults, targetState } from "./efund_flow.mjs";
 
 const overviewView = document.getElementById("overview-view");
 const pendingView = document.getElementById("pending-view");
@@ -59,6 +61,8 @@ const moneyFormat = new Intl.NumberFormat("zh-CN", {
 
 let currentView = "overview";
 let busy = false;
+const expandedAccounts = new Set();
+let accountList = [];
 let loanAccount = null;
 let previewSeq = 0;
 let previewTimer = 0;
@@ -67,6 +71,7 @@ let reconcileSuggestions = [];
 let efundFile = null;
 let efundPreview = null;
 let efundImportResult = null;
+let efundOutcomes = new Map();
 let efundBusy = false;
 let efundRefreshError = "";
 let efundSaveTimer = 0;
@@ -203,33 +208,55 @@ function renderAccounts(accounts) {
     accountsBody.append(row);
     return;
   }
+  accountList = accounts;
+  const rows = accountRows(accounts, expandedAccounts);
   for (const account of accounts) {
+    const info = rows.get(account.account_id);
     const row = document.createElement("tr");
-    if (account.depth) row.className = "account-row-child";
+    row.dataset.accountRow = account.account_id;
+    if (account.parent_id) {
+      row.dataset.parent = account.parent_id;
+      row.className = "account-row-child";
+    }
+    if (info.expandable) row.classList.add("account-expandable");
     const name = document.createElement("span");
     name.className = "account-name";
-    name.textContent = account.name;
+    if (info.expandable) {
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "account-toggle";
+      toggle.setAttribute("aria-expanded", String(info.detailVisible));
+      toggle.dataset.accountToggle = account.account_id;
+      const caret = document.createElement("span");
+      caret.className = "acc-caret";
+      caret.textContent = info.detailVisible ? "▾" : "▸";
+      toggle.append(caret, document.createTextNode(account.name));
+      name.append(toggle);
+    } else {
+      name.textContent = account.name;
+    }
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.textContent = typeLabels[account.type] || account.type;
     name.append(tag);
     row.append(cell(row, name, "l"));
-    const value = cell(row, money(account.value_cents), `num ${account.type === "liability" ? "neg" : ""}`);
+    const value = cell(row, money(info.totalCents), `num ${account.type === "liability" ? "neg" : ""}`);
     row.append(value);
 
     const share = document.createElement("span");
     share.className = "num";
-    share.textContent = `${account.share_percent.toFixed(1)}%`;
+    share.textContent = `${info.totalShare.toFixed(1)}%`;
     const bar = document.createElement("span");
     bar.className = "shbar";
     const fillBar = document.createElement("i");
     if (account.type === "liability") fillBar.className = "n";
-    fillBar.style.width = `${Math.max(1, Math.min(60, Math.abs(account.share_percent) * 0.6))}px`;
+    fillBar.style.width = `${Math.max(1, Math.min(60, Math.abs(info.totalShare) * 0.6))}px`;
     bar.append(fillBar);
     share.append(bar);
     row.append(cell(row, share, "num"));
     row.append(cell(row, account.as_of || "—", "num faint"));
     const action = document.createElement("td");
+    action.className = "account-action";
     if (account.type === "liability") {
       const button = document.createElement("button");
       button.type = "button";
@@ -240,10 +267,20 @@ function renderAccounts(accounts) {
     }
     row.append(action);
     accountsBody.append(row);
+    if (info.expandable) {
+      row.addEventListener("click", (event) => {
+        if (event.target.closest(".account-action")) return;
+        if (expandedAccounts.has(account.account_id)) expandedAccounts.delete(account.account_id);
+        else expandedAccounts.add(account.account_id);
+        refreshAccountRows();
+      });
+    }
 
-    for (const item of account.items) {
+    for (const item of account.items || []) {
       const sub = document.createElement("tr");
       sub.className = "sub";
+      sub.dataset.detailFor = account.account_id;
+      if (account.parent_id) sub.dataset.parent = account.parent_id;
       const itemName = document.createElement("span");
       itemName.textContent = item.name;
       if (item.code) {
@@ -258,15 +295,11 @@ function renderAccounts(accounts) {
       sub.append(cell(sub, ""), cell(sub, ""));
       accountsBody.append(sub);
     }
-    if (account.items.length === 0 && account.cash_cents == null && !account.has_children) {
-      const sub = document.createElement("tr");
-      sub.className = "sub";
-      sub.append(cell(sub, "还没有持仓明细", "l muted"), cell(sub, ""), cell(sub, ""), cell(sub, ""), cell(sub, ""));
-      accountsBody.append(sub);
-    }
     if (account.cash_cents != null) {
       const sub = document.createElement("tr");
       sub.className = "sub";
+      sub.dataset.detailFor = account.account_id;
+      if (account.parent_id) sub.dataset.parent = account.parent_id;
       sub.append(cell(sub, "现金", "l"));
       sub.append(cell(sub, money(account.cash_cents), "num"));
       sub.append(cell(sub, ""), cell(sub, ""), cell(sub, ""));
@@ -276,6 +309,8 @@ function renderAccounts(accounts) {
     if (account.loan) {
       const sub = document.createElement("tr");
       sub.className = "sub loan-sub";
+      sub.dataset.detailFor = account.account_id;
+      if (account.parent_id) sub.dataset.parent = account.parent_id;
       const td = document.createElement("td");
       td.className = "l";
       td.colSpan = 5;
@@ -302,6 +337,26 @@ function renderAccounts(accounts) {
       sub.append(td);
       accountsBody.append(sub);
     }
+  }
+  refreshAccountRows();
+}
+
+function refreshAccountRows() {
+  const rows = accountRows(accountList, expandedAccounts);
+  for (const row of accountsBody.querySelectorAll("tr[data-account-row]")) {
+    const info = rows.get(row.dataset.accountRow);
+    row.hidden = !info || !info.visible;
+  }
+  for (const row of accountsBody.querySelectorAll("tr[data-detail-for]")) {
+    const info = rows.get(row.dataset.detailFor);
+    row.hidden = !info || !info.detailVisible;
+  }
+  for (const toggle of accountsBody.querySelectorAll("[data-account-toggle]")) {
+    const info = rows.get(toggle.dataset.accountToggle);
+    const expanded = Boolean(info?.detailVisible);
+    toggle.setAttribute("aria-expanded", String(expanded));
+    const caret = toggle.querySelector(".acc-caret");
+    if (caret) caret.textContent = expanded ? "▾" : "▸";
   }
 }
 
@@ -1327,20 +1382,42 @@ function markEfundDirty() {
   showStatus("映射有改动，点击「保存映射」或直接导入即可保存");
 }
 
+function resetEfundSession() {
+  const token = efundPreview?.token;
+  clearTimeout(efundSaveTimer);
+  efundFile = null;
+  efundPreview = null;
+  efundImportResult = null;
+  efundOutcomes = new Map();
+  efundBusy = false;
+  efundRefreshError = "";
+  efundFileInput.value = "";
+  efundFileName.textContent = "未选择文件";
+  efundPasswordWrap.hidden = true;
+  efundPassword.value = "";
+  efundParse.disabled = true;
+  efundResultRoot.replaceChildren();
+  if (token) void call("EfundService.ClearSession", token).catch(() => {});
+}
+
 async function parseEfundFile() {
   if (!efundFile) return;
+  const file = efundFile;
   efundParse.disabled = true;
   efundPreview = null;
   efundImportResult = null;
+  efundOutcomes = new Map();
   efundRefreshError = "";
   efundResultRoot.replaceChildren();
   showStatus("正在解析文件…");
   let password = efundPassword.value;
   efundPassword.value = "";
   try {
-    const encoded = await efundToBase64(efundFile);
-    efundPreview = await call("EfundService.Preview", encoded, password, efundFile.name);
+    const encoded = await efundToBase64(file);
+    const preview = await call("EfundService.Preview", encoded, password, file.name);
     password = "";
+    if (efundFile !== file) return;
+    efundPreview = preview;
     efundImportResult = null;
     renderEfund(efundPreview);
     showStatus("解析完成");
@@ -1384,6 +1461,7 @@ function efundSelections() {
 
 async function saveEfundMapping(silent = false) {
   if (!efundPreview || efundBusy) return false;
+  const token = efundPreview.token;
   const selections = efundSelections();
   if (selections.some((selection) => selection.mode === "map" && !selection.account_id && !selection.account_name)) {
     showStatus("请填写新账户名称", "error");
@@ -1394,7 +1472,9 @@ async function saveEfundMapping(silent = false) {
     return false;
   }
   try {
-    efundPreview = await call("EfundService.Remap", efundPreview.token, selections);
+    const preview = await call("EfundService.Remap", token, selections);
+    if (!efundPreview || efundPreview.token !== token) return false;
+    efundPreview = preview;
     renderEfund(efundPreview);
     if (!silent) {
       showStatus(efundPreview.mapping_error ? `映射未保存：${efundPreview.mapping_error}` : "映射已保存");
@@ -1429,6 +1509,18 @@ function efundModeBadge(group) {
   return efundNode("span", "efund-tag warn-tag", "未映射");
 }
 
+function efundStateBadge(state) {
+  if (state === "applied" || state === "skipped") return efundNode("span", "efund-tag ok-tag", "✓ 已导入");
+  if (state === "pending") return efundNode("span", "efund-tag warn-tag", "待确认");
+  if (state === "failed") return efundNode("span", "efund-tag warn-tag", "导入失败");
+  return null;
+}
+
+function efundGroupBadge(group, preview) {
+  const { state } = groupState(group, preview.targets, efundOutcomes);
+  return efundStateBadge(state) || efundModeBadge(group);
+}
+
 function renderEfundGroup(group, preview) {
   const card = efundNode("article", "efund-group");
   const head = efundNode("div", "efund-group-head");
@@ -1440,7 +1532,7 @@ function renderEfundGroup(group, preview) {
   if (group.top_funds.length) {
     left.append(efundNode("p", "efund-sub", `前几只：${group.top_funds.join("、")}`));
   }
-  head.append(left, efundModeBadge(group));
+  head.append(left, efundGroupBadge(group, preview));
   card.append(head);
 
   const row = efundNode("div", "efund-map-row");
@@ -1595,12 +1687,18 @@ function renderEfundGroup(group, preview) {
 }
 
 function renderEfundTarget(target, preview) {
+  const outcome = efundOutcomes.get(target.account_id) || null;
+  const state = targetState(target, outcome);
   const card = efundNode("article", "efund-target");
   const head = efundNode("div", "efund-target-head");
   const left = efundNode("div");
   const title = efundNode("h3", "", target.account_name);
   if (target.group_count > 1) title.append(efundNode("span", "efund-tag muted-tag", `合并 ${target.group_count} 个交易账户`));
-  if (target.already_imported) title.append(efundNode("span", "efund-tag muted-tag", `已导入过（${target.imported_status}）`));
+  const badge = efundStateBadge(state);
+  if (badge) title.append(badge);
+  if (state === "skipped" && target.imported_status) {
+    title.append(efundNode("span", "efund-tag muted-tag", target.imported_status));
+  }
   left.append(title);
   left.append(efundNode("p", "efund-sub",
     `${target.fund_count} 只基金 · ${money(target.market_value_cents)}${target.previous_as_of ? ` · 对比 ${target.previous_as_of}` : " · 无历史快照"}`));
@@ -1653,26 +1751,51 @@ function renderEfundTarget(target, preview) {
   if (target.group_count > 1) {
     actions.append(efundNode("span", "efund-hint", `该目标合并 ${target.group_count} 个交易账户，会一并导入`));
   }
-  const button = efundNode("button", "btn efund-import-run", "导入并确认这一组");
-  button.type = "button";
-  button.disabled = target.already_imported || preview.blocked_by_data || efundBusy;
-  if (target.already_imported) button.title = `已在 ${target.imported_status} 中`;
-  button.addEventListener("click", () => importEfundTarget(target));
-  actions.append(button);
+  if (state === "applied" && outcome?.snapshot_id) {
+    const undo = efundNode("button", "btn efund-undo-run", "撤销本次导入");
+    undo.type = "button";
+    undo.disabled = efundBusy;
+    undo.addEventListener("click", () => undoEfund(outcome));
+    actions.append(undo);
+  } else if (state === "pending") {
+    const go = efundNode("button", "btn text", "去待确认");
+    go.type = "button";
+    go.addEventListener("click", () => showView("pending"));
+    actions.append(go);
+    const done = efundNode("button", "btn", "已进入待确认");
+    done.type = "button";
+    done.disabled = true;
+    actions.append(done);
+  } else if (state === "skipped" || state === "applied") {
+    const done = efundNode("button", "btn efund-import-run", "已导入");
+    done.type = "button";
+    done.disabled = true;
+    if (target.imported_status) done.title = `已在 ${target.imported_status} 中`;
+    actions.append(done);
+  } else {
+    const button = efundNode("button", "btn efund-import-run", state === "failed" ? "重试导入这一组" : "导入并确认这一组");
+    button.type = "button";
+    button.disabled = preview.blocked_by_data || efundBusy;
+    if (preview.blocked_by_data) button.title = preview.block_reason;
+    button.addEventListener("click", () => importEfundTarget(target));
+    actions.append(button);
+  }
   card.append(actions);
   return card;
 }
 
 function renderEfundResults() {
-  if (!efundImportResult) return null;
+  if (!efundOutcomes.size) return null;
+  const results = [...efundOutcomes.values()];
   const panel = efundNode("section", "panel efund-results");
-  panel.append(efundNode("h3", "", `导入结果：${efundImportResult.summary || "已完成"}`));
+  const count = (status) => results.filter((result) => result.status === status).length;
+  panel.append(efundNode("h3", "", "本次会话导入结果"));
   panel.append(efundNode("p", "efund-result-message",
-    `已生效 ${efundImportResult.applied || 0} · 待确认 ${efundImportResult.pending || 0} · 已跳过 ${efundImportResult.skipped || 0} · 失败 ${efundImportResult.failed || 0}`));
+    `已生效 ${count("applied")} · 待确认 ${count("pending")} · 已跳过 ${count("skipped")} · 失败 ${count("failed")} · 已撤销 ${count("undone")}`));
   if (efundRefreshError) {
     panel.append(efundNode("p", "efund-warning", efundRefreshError));
   }
-  for (const result of efundImportResult.results) {
+  for (const result of results) {
     const row = efundNode("div", "efund-result-row");
     const head = efundNode("div", "efund-result-head");
     const left = efundNode("div");
@@ -1701,7 +1824,7 @@ function renderEfundResults() {
       undo.addEventListener("click", () => undoEfund(result));
       actions.append(undo);
     } else if (result.status === "pending") {
-      const go = efundNode("button", "btn", "去待确认");
+      const go = efundNode("button", "btn text", "去待确认");
       go.type = "button";
       go.addEventListener("click", () => showView("pending"));
       actions.append(go);
@@ -1709,7 +1832,7 @@ function renderEfundResults() {
     row.append(head, actions);
     panel.append(row);
   }
-  for (const warning of efundImportResult.warnings || []) {
+  for (const warning of efundImportResult?.warnings || []) {
     panel.append(efundNode("p", "efund-result-message", warning));
   }
   return panel;
@@ -1743,6 +1866,8 @@ async function importEfundTarget(target) {
 }
 
 async function runEfundImport(action) {
+  const token = efundPreview?.token;
+  if (!token) return;
   efundBusy = true;
   efundRefreshError = "";
   efundResultRoot.querySelectorAll("button, select, input").forEach((element) => {
@@ -1750,9 +1875,14 @@ async function runEfundImport(action) {
   });
   showStatus("正在导入…");
   try {
-    efundImportResult = await action();
+    const result = await action();
+    if (!efundPreview || efundPreview.token !== token) return;
+    efundImportResult = result;
+    mergeResults(efundOutcomes, efundImportResult?.results);
     try {
-      efundPreview = await call("EfundService.Refresh", efundPreview.token);
+      const preview = await call("EfundService.Refresh", token);
+      if (!efundPreview || efundPreview.token !== token) return;
+      efundPreview = preview;
     } catch (error) {
       efundRefreshError = `预览刷新失败：${errorText(error)}`;
     }
@@ -1771,21 +1901,26 @@ async function runEfundImport(action) {
     showStatus(errorText(error), "error");
   } finally {
     efundBusy = false;
-    if (efundPreview) renderEfund(efundPreview);
+    if (efundPreview?.token === token) renderEfund(efundPreview);
   }
 }
 
 async function undoEfund(result) {
   if (efundBusy) return;
+  const token = efundPreview?.token;
+  if (!token) return;
   efundBusy = true;
   efundRefreshError = "";
   try {
     await call("EfundService.UndoSnapshot", result.snapshot_id);
     result.status = "undone";
     result.message = "已撤销该次导入快照";
+    if (!efundPreview || efundPreview.token !== token) return;
     if (efundPreview) {
       try {
-        efundPreview = await call("EfundService.Refresh", efundPreview.token);
+        const preview = await call("EfundService.Refresh", token);
+        if (!efundPreview || efundPreview.token !== token) return;
+        efundPreview = preview;
       } catch (error) {
         efundRefreshError = `预览刷新失败：${errorText(error)}`;
       }
@@ -1805,13 +1940,126 @@ async function undoEfund(result) {
     showStatus(errorText(error), "error");
   } finally {
     efundBusy = false;
-    if (efundPreview) renderEfund(efundPreview);
+    if (efundPreview?.token === token) renderEfund(efundPreview);
   }
+}
+
+function efundGroupedRows(rows, state) {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (row.state !== state) continue;
+    const key = row.outcome?.account_id || row.target?.account_id || `${row.group.sales_org}·${row.group.trade_account}`;
+    const entry = grouped.get(key) || {
+      name: row.target?.account_name || row.outcome?.account_name || row.group.name,
+      outcome: row.outcome,
+      target: row.target,
+      groups: 0,
+      cents: 0,
+      message: row.outcome?.message || "",
+    };
+    entry.groups += 1;
+    entry.cents += row.group.market_value_cents || 0;
+    grouped.set(key, entry);
+  }
+  return [...grouped.values()];
+}
+
+function renderEfundComplete(preview, summary) {
+  const { counts } = summary;
+  const panel = efundNode("section", "panel efund-complete");
+  const head = efundNode("div", "ph");
+  head.append(efundNode("h2", "", "导入完成"), efundNode("span", "", preview.file_name));
+  panel.append(head);
+
+  const totals = efundNode("div", "efund-meta");
+  totals.append(
+    efundMetaItem("已生效", `${counts.applied} 组 · ${money(counts.appliedCents)}`),
+    efundMetaItem("待确认", `${counts.pending} 组`),
+    efundMetaItem("已忽略", `${counts.ignored} 组`),
+    efundMetaItem("跳过 / 失败", `${counts.skipped + counts.failed} 组`),
+  );
+  panel.append(totals);
+  if (efundRefreshError) panel.append(efundNode("p", "efund-warning", efundRefreshError));
+
+  for (const entry of efundGroupedRows(summary.rows, "applied")) {
+    const row = efundNode("div", "efund-result-row");
+    const headRow = efundNode("div", "efund-result-head");
+    const left = efundNode("div");
+    const title = efundNode("h3", "", entry.name);
+    title.append(efundNode("span", "efund-tag ok-tag", "✓ 已导入"));
+    left.append(title, efundNode("p", "efund-result-message", `${entry.groups} 组 · ${money(entry.cents)}`));
+    headRow.append(left);
+    const actions = efundNode("div", "efund-actions");
+    if (entry.outcome?.snapshot_id) {
+      const undo = efundNode("button", "btn", "撤销");
+      undo.type = "button";
+      undo.disabled = efundBusy;
+      undo.addEventListener("click", () => undoEfund(entry.outcome));
+      actions.append(undo);
+    }
+    row.append(headRow, actions);
+    panel.append(row);
+  }
+
+  for (const entry of efundGroupedRows(summary.rows, "pending")) {
+    const row = efundNode("div", "efund-result-row");
+    const headRow = efundNode("div", "efund-result-head");
+    const left = efundNode("div");
+    const title = efundNode("h3", "", entry.name);
+    title.append(efundNode("span", "efund-tag warn-tag", "待确认"));
+    left.append(title);
+    const message = entry.message || entry.target?.imported_status;
+    if (message) left.append(efundNode("p", "efund-result-message", message));
+    headRow.append(left);
+    const actions = efundNode("div", "efund-actions");
+    const go = efundNode("button", "btn text", "去待确认");
+    go.type = "button";
+    go.addEventListener("click", () => showView("pending"));
+    actions.append(go);
+    row.append(headRow, actions);
+    panel.append(row);
+  }
+
+  for (const entry of efundGroupedRows(summary.rows, "skipped")) {
+    const row = efundNode("div", "efund-result-row");
+    const title = efundNode("h3", "", entry.name);
+    title.append(efundNode("span", "efund-tag muted-tag", "已导入"));
+    row.append(title);
+    const message = entry.message || entry.target?.imported_status || "该账户已有同日期快照，已跳过";
+    row.append(efundNode("p", "efund-result-message", message));
+    panel.append(row);
+  }
+
+  const actions = efundNode("div", "efund-actions");
+  const home = efundNode("button", "btn", "回首页");
+  home.type = "button";
+  home.addEventListener("click", () => showView("overview"));
+  actions.append(home);
+  if (counts.pending > 0) {
+    const go = efundNode("button", "btn pri", "去待确认");
+    go.type = "button";
+    go.addEventListener("click", () => showView("pending"));
+    actions.append(go);
+  }
+  const again = efundNode("button", "btn", "再导入一个文件");
+  again.type = "button";
+  again.addEventListener("click", () => {
+    resetEfundSession();
+    efundFileInput.click();
+  });
+  actions.append(again);
+  panel.append(actions);
+  return panel;
 }
 
 function renderEfund(preview) {
   efundResultRoot.replaceChildren();
   if (!preview) return;
+  const summary = importSummary(preview.groups, preview.targets, efundOutcomes);
+  if (summary.done) {
+    efundResultRoot.append(renderEfundComplete(preview, summary));
+    return;
+  }
 
   const metaPanel = efundNode("section", "panel");
   const metaHead = efundNode("div", "ph");
@@ -1910,9 +2158,12 @@ function renderEfund(preview) {
 }
 
 efundFileInput.addEventListener("change", () => {
+  clearTimeout(efundSaveTimer);
   efundFile = efundFileInput.files?.[0] || null;
+  efundFileInput.value = "";
   efundPreview = null;
   efundImportResult = null;
+  efundOutcomes = new Map();
   efundRefreshError = "";
   efundResultRoot.replaceChildren();
   efundFileName.textContent = efundFile ? efundFile.name : "未选择文件";
@@ -2062,8 +2313,10 @@ async function reloadAccounts() {
   renderAccountTree(accountTree);
   fillAccountOptions(accountTree);
   if (efundPreview && !efundBusy) {
+    const token = efundPreview.token;
     try {
-      efundPreview = await call("EfundService.Refresh", efundPreview.token);
+      const preview = await call("EfundService.Refresh", token);
+      if (efundPreview?.token === token) efundPreview = preview;
     } catch (_) {
       // The import preview can be re-parsed if the session expired.
     }
@@ -2163,9 +2416,7 @@ async function reloadOverview() {
 
 async function showView(view) {
   if (view === "loan" && !loanAccount) view = "overview";
-  if (currentView === "efund" && view !== "efund") {
-    efundPassword.value = "";
-  }
+  if (currentView === "efund" && view !== "efund") resetEfundSession();
   currentView = view;
   for (const item of navItems) {
     const active = item.dataset.view === view;
