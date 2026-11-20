@@ -129,6 +129,7 @@
 
 - `.panel` / `.card`：`--paper` 底、`--line` 边框、`--radius-xl`、`--shadow-1`。
 - 面板头部 `.ph`：左侧 `<h2>`，右侧状态文字；标题 `--text-lg`/600，状态 `--text-sm`/`--muted`。
+- 页面头部 `.page-head`：左侧 `.eyebrow` 短语 + `<h1>` + `.page-sub` 说明，右侧 `.page-note` / `.page-badge`。用于「导入」「账户管理」「待确认」这类一级页面。
 - 组内卡片 `.efund-group`、`.account-block`：`--surface-soft` 底、`--radius-lg`、内边距 `--space-3`。
 - 同层级面板间距 `--space-3`；页面区块间距 `--space-3` 到 `--space-4`。
 
@@ -187,20 +188,25 @@
 
 ### 步骤条
 
-用于多步流程（选文件 → 映射 → 导入 → 完成）。规格（待页面首次使用时落地）：
+用于多步流程（选文件 → 预览映射 → 完成）。最多四步；导入页当前使用三步：
 
 ```html
 <ol class="steps" aria-label="导入步骤">
-  <li class="done">选择文件</li>
-  <li class="on" aria-current="step">映射</li>
-  <li>导入</li>
-  <li>完成</li>
+  <li class="done"><span class="step-no">1</span>选择文件</li>
+  <li class="on" aria-current="step"><span class="step-no">2</span>预览映射</li>
+  <li><span class="step-no">3</span>完成</li>
 </ol>
 ```
 
-- 横向排列，序号圆点用 `--radius-pill`，连接线 1px `--line`。
-- 已完成：`--green` 圆点 + `--surface-success` 底；当前：`--clay` 圆点 + `--clay-soft` 底；未开始：`--muted` 文字 + `--line-soft` 底。
+- 横向排列，序号圆点用 `--radius-pill`，连接线 1px `--line`；外层是 `--paper` 面板。
+- 已完成：`--green` 序号 + `--surface-success` 底；当前：`--clay` 序号底 + 白字；未开始：`--muted` 文字 + `--line-soft` 底。
 - 当前步骤必须有 `aria-current="step"`；步骤名使用短动词短语。
+
+### 页面与表单分组
+
+- 导入文件区 `.efund-upload-body`：左侧文件选择、可选密码、右侧解析按钮；字段标签 `.field-label` 在控件上方。
+- 摘要数字 `.import-summary`：四列 `.summary-item`，标签 `.summary-label`，主值 `.summary-value`，补充 `.summary-note`。
+- 账户表单 `.account-form`：两列网格；字段多时用 `.account-form.wide` 四列。按钮统一放在 `.form-actions`，右对齐。
 
 ### 提示、空状态与加载
 

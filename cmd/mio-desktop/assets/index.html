@@ -88,25 +88,58 @@
     </section>
 
     <section id="pending-view" class="view" hidden>
-      <section class="panel">
-        <div class="ph"><h2>待确认快照</h2><span>被异常规则拦下的记录，确认生效后才会写入正式数据</span></div>
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">核对</p>
+          <h1>待确认快照</h1>
+          <p class="page-sub">被异常规则拦下的记录。逐条比较变化，确认生效后才写入正式数据。</p>
+        </div>
+        <span class="page-note">同屏逐条处理</span>
+      </header>
+      <section class="panel pending-panel">
+        <div class="ph"><h2>需要你确认</h2><span>确认后才会更新资产</span></div>
         <div id="list" class="list"></div>
-        <div id="empty" class="empty" hidden>没有需要你确认的快照</div>
+        <div id="empty" class="empty" hidden>
+          <strong>没有待确认快照</strong>
+          <span>命中异常规则的提交会出现在这里，普通提交会直接生效。</span>
+        </div>
       </section>
     </section>
 
     <section id="efund-view" class="view" hidden>
-      <section class="panel efund-upload">
-        <div class="ph"><h2>导入 · 基金E账户</h2><span>xlsx / 加密 zip</span></div>
-        <div class="efund-file-row">
-          <label class="btn" for="efund-file">选择文件</label>
-          <input id="efund-file" class="efund-file-input" type="file" accept=".xlsx,.zip">
-          <span id="efund-file-name" class="muted">未选择文件</span>
-          <label id="efund-password-wrap" class="efund-password" hidden>
-            密码
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">基金E账户</p>
+          <h1>导入持仓快照</h1>
+          <p class="page-sub">读取基金E账户导出文件，确认交易账户映射后，按组合写入快照。</p>
+        </div>
+        <span class="page-badge">xlsx / 加密 zip</span>
+      </header>
+
+      <ol id="efund-steps" class="steps" aria-label="导入步骤">
+        <li class="on" data-step="select" aria-current="step"><span class="step-no">1</span>选择文件</li>
+        <li data-step="preview"><span class="step-no">2</span>预览映射</li>
+        <li data-step="done"><span class="step-no">3</span>完成</li>
+      </ol>
+
+      <section id="efund-upload" class="panel efund-upload">
+        <div class="ph"><h2>选择数据文件</h2><span>文件只在本次会话内解析</span></div>
+        <div class="efund-upload-body">
+          <div class="file-field">
+            <span class="field-label">数据文件</span>
+            <div class="file-picker">
+              <label class="btn" for="efund-file">选择文件</label>
+              <input id="efund-file" class="efund-file-input" type="file" accept=".xlsx,.zip">
+              <span id="efund-file-name" class="file-name muted">未选择文件</span>
+            </div>
+          </div>
+          <label id="efund-password-wrap" class="field efund-password" hidden>
+            <span class="field-label">解密密码</span>
             <input id="efund-password" type="password" autocomplete="off" spellcheck="false">
           </label>
-          <button id="efund-parse" class="btn pri" type="button" disabled>解析</button>
+          <div class="upload-actions">
+            <button id="efund-parse" class="btn pri" type="button" disabled>解析文件</button>
+          </div>
         </div>
         <p class="efund-hint">密码只用于本次解密，不保存、不写日志。xlsx 不需要密码；加密 zip 请在这里输入。</p>
       </section>
@@ -114,15 +147,24 @@
     </section>
 
     <section id="accounts-view" class="view" hidden>
-      <section class="panel">
-        <div class="ph"><h2>账户与组合</h2><span>两级结构 · 组合继承账户成员、币种和类型</span></div>
+      <header class="page-head">
+        <div>
+          <p class="eyebrow">账户与组合</p>
+          <h1>账户管理</h1>
+          <p class="page-sub">账户是顶层对象，组合挂在账户下。组合继承账户的成员、币种和类型。</p>
+        </div>
+        <span class="page-note">两级结构</span>
+      </header>
+
+      <section class="panel account-tree-panel">
+        <div class="ph"><h2>现有账户</h2><span>编辑账户、组合或创建组合</span></div>
         <div id="accounts-tree" class="account-tree"></div>
       </section>
 
       <div class="row2 account-forms">
-        <section class="panel">
+        <section class="panel account-form-panel">
           <div class="ph"><h2>新建账户</h2><span>顶层账户</span></div>
-          <form id="account-create" class="efund-form" novalidate>
+          <form id="account-create" class="efund-form account-form" novalidate>
             <label>名称<input name="name" required></label>
             <label>类型
               <select name="type">
@@ -135,24 +177,24 @@
             </label>
             <label>币种<input name="currency" value="CNY"></label>
             <label>归属成员<input name="owner" list="owner-options" placeholder="可输入新成员"></label>
-            <button class="btn pri" type="submit">新建账户</button>
+            <div class="form-actions"><button class="btn pri" type="submit">新建账户</button></div>
           </form>
         </section>
 
-        <section class="panel">
+        <section class="panel account-form-panel">
           <div class="ph"><h2>新建组合</h2><span>挂在顶层账户下</span></div>
-          <form id="portfolio-create" class="efund-form" novalidate>
+          <form id="portfolio-create" class="efund-form account-form" novalidate>
             <label>上级账户<select name="parent_id"></select></label>
             <label>组合名称<input name="name" required></label>
-            <button class="btn pri" type="submit">新建组合</button>
+            <div class="form-actions"><button class="btn pri" type="submit">新建组合</button></div>
           </form>
         </section>
       </div>
 
-      <section class="panel">
+      <section class="panel account-form-panel">
         <div class="ph"><h2>编辑 / 归档</h2><span>只允许归档没有快照的账户或组合</span></div>
-        <form id="account-edit" class="efund-form" novalidate>
-          <label>对象<select name="target" id="account-edit-select"></select></label>
+        <form id="account-edit" class="efund-form account-form wide" novalidate>
+          <label class="field-wide">对象<select name="target" id="account-edit-select"></select></label>
           <label>名称<input name="name"></label>
           <label class="account-only">类型
             <select name="type">
@@ -165,8 +207,10 @@
           </label>
           <label class="account-only">币种<input name="currency"></label>
           <label class="account-only">归属成员<input name="owner" list="owner-options"></label>
-          <button class="btn pri" type="submit">保存修改</button>
-          <button class="btn account-archive" type="button">归档</button>
+          <div class="form-actions">
+            <button class="btn pri" type="submit">保存修改</button>
+            <button class="btn account-archive" type="button">归档</button>
+          </div>
         </form>
       </section>
       <datalist id="owner-options"></datalist>
