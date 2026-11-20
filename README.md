@@ -50,6 +50,7 @@
 - **写入有刹车**：Agent 先 `submit_snapshot` 拿到差异预览，再 `confirm_snapshot` 才生效；总额突变、持仓整条消失、负数、币种不一致会被拦截，并在桌面端「待确认」里等人放行。
 - **房贷逐期重算**：既可以从某个锚点开始算，也可以从第 1 期完整重放；支持 30 天拆分计息、调整当期的三种本金算法和提前还款。`--loan-sync` 会按已过扣款日自动补写负债快照。
 - **和银行对账**：抄几期银行 App 的月供、本金、利息，`reconcile_loan_history` 会反推利率调整的生效日和当期本金算法；对账只读，确认后再写入。
+- **基金E账户导入**：桌面端直接读取 xlsx / 加密 zip，按「账户 → 组合」映射，预览差异后走现有快照确认流程；导入可按目标逐组执行，也可按快照精确撤销。
 - **一眼看懂**：桌面端提供净资产、资产/负债、历史曲线、资产构成，以及每笔贷款还剩多少期、下期月供和已还合计。
 
 ## 快速上手
@@ -60,7 +61,11 @@
 git clone https://github.com/curiselven/mio-money.git
 cd mio-money
 
-# 构建
+# macOS 安装包（构建 Mio.app、CLI，备份数据库，归档旧应用）
+./scripts/install-mac.sh --dry-run   # 只看步骤
+./scripts/install-mac.sh             # 安装到 /Applications
+
+# 或者手动构建
 go build -o bin/mio ./cmd/mio
 go build -o bin/mio-desktop ./cmd/mio-desktop
 

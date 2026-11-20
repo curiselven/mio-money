@@ -50,6 +50,7 @@
 - **Writes with brakes**: an agent first calls `submit_snapshot` for a diff preview, then `confirm_snapshot` to make it live. Large total changes, disappearing positions, negative values and currency mismatches are blocked and wait for a human in the desktop "pending" view.
 - **Loan replay**: model a loan from an anchor date or replay it from period 1. It supports 30-day split interest, three principal rules for rate-change periods, and prepayments. `--loan-sync` writes liability snapshots for elapsed payment dates.
 - **Bank reconciliation**: copy a few monthly payment, principal and interest figures from the bank app; `reconcile_loan_history` infers the rate-change date and principal rule. Reconciliation is read-only; write only after you confirm.
+- **Fund E-account import**: read xlsx or encrypted zip files in the desktop app, map trade accounts to accounts/portfolios, review diffs, and write through the existing snapshot confirmation flow. Targets can be imported one by one; confirmed imports can be undone by snapshot.
 - **One clear overview**: net worth, assets and liabilities, history chart, asset allocation, and per-loan remaining periods, next payment and paid totals in the desktop app.
 
 ## Quick start
@@ -60,7 +61,11 @@ You need Go 1.26+. The desktop app is built with Wails v3 and currently targets 
 git clone https://github.com/curiselven/mio-money.git
 cd mio-money
 
-# Build
+# macOS installer (builds Mio.app and the CLI, backs up the database, archives the old app)
+./scripts/install-mac.sh --dry-run
+./scripts/install-mac.sh
+
+# Or build manually
 go build -o bin/mio ./cmd/mio
 go build -o bin/mio-desktop ./cmd/mio-desktop
 
