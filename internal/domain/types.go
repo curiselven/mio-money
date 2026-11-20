@@ -28,6 +28,7 @@ type Account struct {
 	Type      AccountType `json:"type"`
 	Currency  string      `json:"currency"`
 	Owner     string      `json:"owner,omitempty"`
+	ParentID  string      `json:"parent_id,omitempty"`
 	Archived  bool        `json:"archived"`
 	CreatedAt time.Time   `json:"created_at"`
 	UpdatedAt time.Time   `json:"updated_at"`

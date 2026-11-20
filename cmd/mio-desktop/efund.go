@@ -34,16 +34,21 @@ type EfundService struct {
 }
 
 type efundSession struct {
-	token  string
-	parsed *efund.Result
+	token      string
+	parsed     *efund.Result
+	mapping    *efund.Mapping
+	mappingErr string
 }
 
 type EfundAccountOption struct {
-	ID       string             `json:"id"`
-	Name     string             `json:"name"`
-	Platform string             `json:"platform,omitempty"`
-	Type     domain.AccountType `json:"type"`
-	Currency string             `json:"currency"`
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Platform    string             `json:"platform,omitempty"`
+	Type        domain.AccountType `json:"type"`
+	Currency    string             `json:"currency"`
+	ParentID    string             `json:"parent_id,omitempty"`
+	ParentName  string             `json:"parent_name,omitempty"`
+	HasChildren bool               `json:"has_children"`
 }
 
 type EfundGroupPreview struct {
@@ -53,6 +58,11 @@ type EfundGroupPreview struct {
 	Mode             string          `json:"mode"`
 	AccountID        string          `json:"account_id,omitempty"`
 	AccountName      string          `json:"account_name,omitempty"`
+	TopAccountID     string          `json:"top_account_id,omitempty"`
+	TopAccountName   string          `json:"top_account_name,omitempty"`
+	PortfolioID      string          `json:"portfolio_id,omitempty"`
+	PortfolioName    string          `json:"portfolio_name,omitempty"`
+	Direct           bool            `json:"direct"`
 	Ignored          bool            `json:"ignored"`
 	FundCount        int             `json:"fund_count"`
 	MarketValueCents int64           `json:"market_value_cents"`
@@ -62,6 +72,7 @@ type EfundGroupPreview struct {
 }
 
 type EfundTargetPreview struct {
+	Key              string           `json:"key"`
 	AccountID        string           `json:"account_id,omitempty"`
 	AccountName      string           `json:"account_name"`
 	NewAccount       bool             `json:"new_account"`
@@ -75,6 +86,7 @@ type EfundTargetPreview struct {
 	Holdings         []domain.Item    `json:"holdings"`
 	AlreadyImported  bool             `json:"already_imported"`
 	ImportedStatus   string           `json:"imported_status,omitempty"`
+	CashCents        *int64           `json:"cash_cents,omitempty"`
 	mappingKeys      []string
 	tradeAccounts    []string
 }
@@ -91,15 +103,22 @@ type EfundPreview struct {
 	BlockReason           string               `json:"block_reason,omitempty"`
 	BlockedByData         bool                 `json:"blocked_by_data"`
 	TotalMarketValueCents int64                `json:"total_market_value_cents"`
+	FileTotalCents        int64                `json:"file_total_cents"`
+	IgnoredTotalCents     int64                `json:"ignored_total_cents"`
+	UnmappedTotalCents    int64                `json:"unmapped_total_cents"`
+	MappingError          string               `json:"mapping_error,omitempty"`
 	TotalHoldingCount     int                  `json:"total_holding_count"`
 }
 
 type EfundSelection struct {
-	SalesOrg     string `json:"sales_org"`
-	TradeAccount string `json:"trade_account"`
-	Mode         string `json:"mode"`
-	AccountID    string `json:"account_id,omitempty"`
-	AccountName  string `json:"account_name,omitempty"`
+	SalesOrg      string `json:"sales_org"`
+	TradeAccount  string `json:"trade_account"`
+	Mode          string `json:"mode"`
+	AccountID     string `json:"account_id,omitempty"`
+	AccountName   string `json:"account_name,omitempty"`
+	PortfolioID   string `json:"portfolio_id,omitempty"`
+	PortfolioName string `json:"portfolio_name,omitempty"`
+	Direct        bool   `json:"direct"`
 }
 
 type EfundImportAccountResult struct {
@@ -114,6 +133,11 @@ type EfundImportAccountResult struct {
 }
 
 type EfundImportResult struct {
+	Summary  string                     `json:"summary"`
+	Applied  int                        `json:"applied"`
+	Pending  int                        `json:"pending"`
+	Skipped  int                        `json:"skipped"`
+	Failed   int                        `json:"failed"`
 	Results  []EfundImportAccountResult `json:"results"`
 	Warnings []string                   `json:"warnings,omitempty"`
 }
@@ -133,6 +157,7 @@ type efundTarget struct {
 	holdings      []efund.Holding
 	mappingKeys   []string
 	tradeAccounts []string
+	cashCents     *int64
 }
 
 func NewEfundService(svc *domain.Service, st *store.Store, dbPath string) *EfundService {
@@ -173,7 +198,7 @@ func (s *EfundService) Preview(dataBase64, password, fileName string) (*EfundPre
 		return nil, err
 	}
 	token := newEfundToken()
-	s.session = &efundSession{token: token, parsed: parsed}
+	s.session = &efundSession{token: token, parsed: parsed, mapping: mapping}
 	preview.Token = token
 	return preview, nil
 }
@@ -185,14 +210,12 @@ func (s *EfundService) Remap(token string, selections []EfundSelection) (*EfundP
 	if err != nil {
 		return nil, err
 	}
+	ctx := context.Background()
 	accounts, err := s.st.ListAccounts(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	mapping, err := s.loadMapping()
-	if err != nil {
-		return nil, err
-	}
+	mapping := cloneMapping(session.mapping)
 	valid := map[string]bool{}
 	for _, h := range session.parsed.Holdings {
 		valid[efund.MappingKey(h.SalesOrg, h.TradeAccount)] = true
@@ -202,17 +225,24 @@ func (s *EfundService) Remap(token string, selections []EfundSelection) (*EfundP
 		if !valid[key] {
 			return nil, fmt.Errorf("未知的交易账户：%s / %s", selection.SalesOrg, selection.TradeAccount)
 		}
-		if err := applyEfundSelection(mapping, accounts, selection); err != nil {
+		accounts, err = applyEfundSelection(ctx, s.svc, mapping, accounts, selection)
+		if err != nil {
 			return nil, err
 		}
 	}
-	if err := efund.WriteMapping(s.mappingPath, mapping); err != nil {
-		return nil, err
+	if !mappingEqual(mapping, session.mapping) {
+		session.mapping = mapping
+		if err := efund.WriteMapping(s.mappingPath, mapping); err != nil {
+			session.mappingErr = err.Error()
+		} else {
+			session.mappingErr = ""
+		}
 	}
 	preview, err := s.buildPreview(session.parsed, mapping, accounts)
 	if err != nil {
 		return nil, err
 	}
+	s.applyMappingWarning(preview)
 	preview.Token = token
 	return preview, nil
 }
@@ -224,9 +254,13 @@ func (s *EfundService) Refresh(token string) (*EfundPreview, error) {
 	if err != nil {
 		return nil, err
 	}
-	mapping, err := s.loadMapping()
-	if err != nil {
-		return nil, err
+	mapping := session.mapping
+	if mapping == nil {
+		mapping, err = s.loadMapping()
+		if err != nil {
+			return nil, err
+		}
+		session.mapping = mapping
 	}
 	accounts, err := s.st.ListAccounts(context.Background())
 	if err != nil {
@@ -236,11 +270,20 @@ func (s *EfundService) Refresh(token string) (*EfundPreview, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.applyMappingWarning(preview)
 	preview.Token = token
 	return preview, nil
 }
 
 func (s *EfundService) Import(token string) (*EfundImportResult, error) {
+	return s.importTargets(token, "")
+}
+
+func (s *EfundService) ImportTarget(token, targetKey string) (*EfundImportResult, error) {
+	return s.importTargets(token, targetKey)
+}
+
+func (s *EfundService) importTargets(token, onlyKey string) (*EfundImportResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, err := s.sessionFor(token)
@@ -252,90 +295,81 @@ func (s *EfundService) Import(token string) (*EfundImportResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	mapping, err := s.loadMapping()
-	if err != nil {
-		return nil, err
+	mapping := session.mapping
+	if mapping == nil {
+		mapping, err = s.loadMapping()
+		if err != nil {
+			return nil, err
+		}
+		session.mapping = mapping
 	}
 	preview, err := s.buildPreview(session.parsed, mapping, accounts)
 	if err != nil {
 		return nil, err
 	}
-	if !preview.CanImport {
+	if preview.BlockedByData {
+		return nil, errors.New(preview.BlockReason)
+	}
+	if onlyKey == "" && !preview.CanImport {
 		return nil, errors.New(preview.BlockReason)
 	}
 
 	result := &EfundImportResult{Results: []EfundImportAccountResult{}}
-	mappingChanged := false
 	for _, target := range preview.Targets {
+		if onlyKey != "" && target.Key != onlyKey {
+			continue
+		}
 		if target.AlreadyImported {
 			result.Results = append(result.Results, EfundImportAccountResult{
 				AccountID: target.AccountID, AccountName: target.AccountName,
-				NewAccount: target.NewAccount, Status: "skipped",
-				Message:          "已跳过：该账户在 " + session.parsed.Meta.ShareDate + " 已有 efund_import 快照（" + target.ImportedStatus + "）",
+				Status:           "skipped",
+				Message:          "已跳过：该账户在 " + session.parsed.Meta.ShareDate + " 已有 " + target.ImportedStatus + " 快照",
 				MarketValueCents: target.MarketValueCents,
 			})
 			continue
 		}
 		accountID := target.AccountID
-		if target.NewAccount {
-			account, err := s.svc.UpsertAccount(ctx, domain.UpsertAccountInput{
-				Name: target.AccountName, Platform: target.Platform,
-				Type: domain.AccountFund, Currency: "CNY",
-			})
-			if err != nil {
-				result.Results = append(result.Results, EfundImportAccountResult{
-					AccountName: target.AccountName, NewAccount: true, Status: "failed",
-					Message: err.Error(), MarketValueCents: target.MarketValueCents,
-				})
-				continue
-			}
-			accountID = account.ID
-			for _, key := range target.mappingKeys {
-				if entry := findMappingEntry(mapping, key); entry != nil {
-					entry.AccountID = account.ID
-					entry.Account = account.Name
-					entry.Ignore = false
-				}
-			}
-			mappingChanged = true
-		}
-
-		status, imported, err := s.importedStatus(ctx, accountID, session.parsed.Meta.ShareDate)
+		status, imported, err := s.conflictStatus(ctx, accountID, session.parsed.Meta.ShareDate)
 		if err != nil {
 			result.Results = append(result.Results, EfundImportAccountResult{
-				AccountID: accountID, AccountName: target.AccountName, NewAccount: target.NewAccount,
+				AccountID: accountID, AccountName: target.AccountName,
 				Status: "failed", Message: err.Error(), MarketValueCents: target.MarketValueCents,
 			})
 			continue
 		}
 		if imported {
 			result.Results = append(result.Results, EfundImportAccountResult{
-				AccountID: accountID, AccountName: target.AccountName, NewAccount: target.NewAccount,
-				Status: "skipped", Message: "已跳过：该账户在 " + session.parsed.Meta.ShareDate + " 已有 efund_import 快照（" + status + "）",
+				AccountID: accountID, AccountName: target.AccountName,
+				Status: "skipped", Message: "已跳过：该账户在 " + session.parsed.Meta.ShareDate + " 已有 " + status + " 快照",
 				MarketValueCents: target.MarketValueCents,
 			})
 			continue
 		}
 
+		note := efundSourceNote(session.parsed.Meta, target.tradeAccounts)
+		if target.CashCents != nil {
+			note += "，现金沿用上次"
+		}
 		submitted, err := s.svc.Submit(ctx, domain.SubmitInput{
 			AccountID:   accountID,
 			AsOf:        session.parsed.Meta.ShareDate,
 			Source:      domain.SourceEfundImport,
-			SourceNote:  efundSourceNote(session.parsed.Meta, target.tradeAccounts),
+			SourceNote:  note,
 			Currency:    "CNY",
+			CashCents:   target.CashCents,
 			Items:       target.Holdings,
 			AuditDetail: efundAuditDetail(session.parsed.Meta),
 		})
 		if err != nil {
 			result.Results = append(result.Results, EfundImportAccountResult{
-				AccountID: accountID, AccountName: target.AccountName, NewAccount: target.NewAccount,
+				AccountID: accountID, AccountName: target.AccountName,
 				Status: "failed", Message: err.Error(), MarketValueCents: target.MarketValueCents,
 			})
 			continue
 		}
 		_, confirmErr := s.svc.Confirm(ctx, submitted.SnapshotID)
 		item := EfundImportAccountResult{
-			AccountID: accountID, AccountName: target.AccountName, NewAccount: target.NewAccount,
+			AccountID: accountID, AccountName: target.AccountName,
 			SnapshotID: submitted.SnapshotID, Anomalies: submitted.Anomalies,
 			MarketValueCents: target.MarketValueCents,
 		}
@@ -352,19 +386,32 @@ func (s *EfundService) Import(token string) (*EfundImportResult, error) {
 		}
 		result.Results = append(result.Results, item)
 	}
-	if mappingChanged {
-		if err := efund.WriteMapping(s.mappingPath, mapping); err != nil {
-			result.Warnings = append(result.Warnings, "映射文件写回失败："+err.Error())
-		}
+	if len(result.Results) == 0 {
+		return nil, errors.New("没有找到要导入的目标")
 	}
+	if session.mappingErr != "" {
+		result.Warnings = append(result.Warnings, "映射未保存："+session.mappingErr)
+	}
+	summarizeImportResult(result)
 	return result, nil
 }
 
-func (s *EfundService) Undo(accountID string) error {
+func (s *EfundService) UndoSnapshot(snapshotID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.svc.Undo(context.Background(), accountID)
+	_, err := s.svc.UndoSnapshot(context.Background(), snapshotID)
 	return err
+}
+
+func (s *EfundService) applyMappingWarning(preview *EfundPreview) {
+	if s.session == nil || s.session.mappingErr == "" {
+		return
+	}
+	preview.MappingError = s.session.mappingErr
+	preview.Warnings = append(preview.Warnings, efund.Warning{
+		Code: "mapping_save_failed", Severity: efund.SeverityWarning,
+		Message: "映射未保存：" + s.session.mappingErr,
+	})
 }
 
 func (s *EfundService) sessionFor(token string) (*efundSession, error) {
@@ -382,7 +429,7 @@ func (s *EfundService) loadMapping() (*efund.Mapping, error) {
 	return mapping, err
 }
 
-func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping, accounts []domain.Account) (*EfundPreview, error) {
+func (s *EfundService) buildPreviewOld(parsed *efund.Result, mapping *efund.Mapping, accounts []domain.Account) (*EfundPreview, error) {
 	ctx := context.Background()
 	byID := map[string]domain.Account{}
 	byName := map[string][]domain.Account{}
@@ -538,7 +585,7 @@ func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping
 			targetView.PreviousAsOf = previous.AsOf
 		}
 		if target.accountID != "" {
-			status, imported, err := s.importedStatus(ctx, target.accountID, parsed.Meta.ShareDate)
+			status, imported, err := s.conflictStatus(ctx, target.accountID, parsed.Meta.ShareDate)
 			if err != nil {
 				return nil, err
 			}
@@ -572,29 +619,27 @@ func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping
 	return preview, nil
 }
 
-func (s *EfundService) importedStatus(ctx context.Context, accountID, asOf string) (string, bool, error) {
+func (s *EfundService) conflictStatus(ctx context.Context, accountID, asOf string) (string, bool, error) {
 	confirmed, err := s.st.ListConfirmed(ctx, accountID, asOf, asOf)
 	if err != nil {
 		return "", false, err
 	}
 	for _, snapshot := range confirmed {
-		if snapshot.Source == domain.SourceEfundImport {
-			return "已确认", true, nil
-		}
+		return string(snapshot.Source) + " / 已确认", true, nil
 	}
 	pending, err := s.st.ListPending(ctx)
 	if err != nil {
 		return "", false, err
 	}
 	for _, snapshot := range pending {
-		if snapshot.AccountID == accountID && snapshot.AsOf == asOf && snapshot.Source == domain.SourceEfundImport {
-			return "待确认", true, nil
+		if snapshot.AccountID == accountID && snapshot.AsOf == asOf {
+			return string(snapshot.Source) + " / 待确认", true, nil
 		}
 	}
 	return "", false, nil
 }
 
-func applyEfundSelection(mapping *efund.Mapping, accounts []domain.Account, selection EfundSelection) error {
+func applyEfundSelectionOld(mapping *efund.Mapping, accounts []domain.Account, selection EfundSelection) error {
 	key := efund.MappingKey(selection.SalesOrg, selection.TradeAccount)
 	entry := findMappingEntry(mapping, key)
 	if entry == nil {

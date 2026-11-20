@@ -172,3 +172,45 @@ func call(t *testing.T, session *sdk.ClientSession, name string, args map[string
 		t.Fatalf("%s: %v (raw %s)", name, err, raw)
 	}
 }
+
+func TestMCPRejectsDesktopOnlySources(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open("file:mcp_sources?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := domain.NewService(st, 0.2)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := mioserver.NewServer(svc)
+	serverTransport, clientTransport := sdk.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	for _, source := range []string{"efund_import", "loan_schedule"} {
+		result, err := session.CallTool(ctx, &sdk.CallToolParams{
+			Name: "submit_snapshot",
+			Arguments: map[string]any{
+				"account_id": account.ID,
+				"as_of":      "2026-11-17",
+				"source":     source,
+				"items":      []map[string]any{{"name": "示例基金", "market_value_cents": 100}},
+			},
+		})
+		if err != nil {
+			t.Fatalf("source %s error = %v", source, err)
+		}
+		if result == nil || !result.IsError {
+			t.Fatalf("source %s was accepted: %+v", source, result)
+		}
+	}
+}

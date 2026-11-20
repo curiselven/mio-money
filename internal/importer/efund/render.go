@@ -46,8 +46,11 @@ func Render(w io.Writer, p *Preview) {
 			renderDiff(w, g.Diff)
 		}
 	}
-	fmt.Fprintf(w, "\n总计：%d 只基金（%d 条持仓），市值 %s\n",
-		p.Total.FundCount, p.Total.HoldingCount, moneyString(p.Total.MarketValueCents, p.Total.Currency))
+	fmt.Fprintf(w, "\n文件总计：%s\n", moneyString(p.FileTotalCents, p.Total.Currency))
+	fmt.Fprintf(w, "已映射小计：%s\n", moneyString(p.MappedTotalCents, p.Total.Currency))
+	fmt.Fprintf(w, "已忽略：%s\n", moneyString(p.IgnoredTotalCents, p.Total.Currency))
+	fmt.Fprintf(w, "未映射：%s\n", moneyString(p.UnmappedTotalCents, p.Total.Currency))
+	fmt.Fprintf(w, "共 %d 只基金（%d 条持仓）\n", p.Total.FundCount, p.Total.HoldingCount)
 
 	if len(p.Unmapped) > 0 {
 		fmt.Fprintln(w, "\n⚠ 未映射的交易账户")

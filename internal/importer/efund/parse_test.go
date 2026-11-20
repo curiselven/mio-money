@@ -101,7 +101,7 @@ func TestParseWarnings(t *testing.T) {
 	}
 	if severities["value_mismatch"] != SeverityWarning ||
 		severities["record_count_mismatch"] != SeverityBlocksWrite ||
-		severities["currency"] != SeverityWarning {
+		severities["currency"] != SeverityBlocksWrite {
 		t.Fatalf("severities = %+v", severities)
 	}
 	data, err := json.Marshal(parsed)
@@ -178,5 +178,42 @@ func TestParseSeq(t *testing.T) {
 		if ok != c.ok || got != c.want {
 			t.Fatalf("parseSeq(%q) = %d, %v; want %d, %v", c.value, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestFundCodePadsNumericValue(t *testing.T) {
+	rows := append(personalRows(), headerRow())
+	rows = append(rows,
+		holdingRow(1, "216", "示例成长混合", salesA, "T0000001", "100", "2026/11/17", "1.0", "2026/11/17", "100.00"),
+		footerRow(1),
+	)
+	parsed, err := Parse(writeBook(t, rows))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Holdings[0].FundCode != "000216" {
+		t.Fatalf("fund code = %q", parsed.Holdings[0].FundCode)
+	}
+}
+
+func TestShareDateMismatchBlocksWrite(t *testing.T) {
+	rows := append(personalRows(), headerRow())
+	rows = append(rows,
+		holdingRow(1, "000216", "示例成长混合", salesA, "T0000001", "100", "2026/11/17", "1.0", "2026/11/17", "100.00"),
+		holdingRow(2, "000217", "示例价值混合", salesA, "T0000001", "10", "2026/11/18", "2.0", "2026/11/18", "20.00"),
+		footerRow(2),
+	)
+	parsed, err := Parse(writeBook(t, rows))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, warning := range parsed.Warnings {
+		if warning.Code == "share_date_mismatch" && warning.Severity == SeverityBlocksWrite {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("warnings = %+v", parsed.Warnings)
 	}
 }

@@ -51,7 +51,13 @@ func TestEfundAssetsPresent(t *testing.T) {
 	if !strings.Contains(string(index), "基金E账户") || !strings.Contains(string(index), `data-view="efund"`) {
 		t.Fatal("efund import view is missing")
 	}
-	if !strings.Contains(string(app), "EfundService.Preview") || !strings.Contains(string(app), "EfundService.Import") {
+	if !strings.Contains(string(index), "账户管理") || !strings.Contains(string(index), `data-view="accounts"`) {
+		t.Fatal("account management view is missing")
+	}
+	if !strings.Contains(string(app), "EfundService.Preview") || !strings.Contains(string(app), "EfundService.ImportTarget") {
 		t.Fatal("efund service calls are missing")
+	}
+	if !strings.Contains(string(app), "AccountService.List") {
+		t.Fatal("account service calls are missing")
 	}
 }

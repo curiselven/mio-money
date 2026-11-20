@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	yzip "github.com/yeka/zip"
 
@@ -83,8 +84,8 @@ func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 		t.Fatalf("preview = %+v", preview)
 	}
 	preview, err = h.service.Remap(preview.Token, []EfundSelection{
-		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: efundModeExisting, AccountID: existing.ID},
-		{SalesOrg: efundSalesB, TradeAccount: "T0000002", Mode: efundModeNew, AccountName: "新基金组合"},
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: existing.ID, Direct: true},
+		{SalesOrg: efundSalesB, TradeAccount: "T0000002", Mode: "map", AccountName: "新基金组合", Direct: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -92,10 +93,14 @@ func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 	if !preview.CanImport {
 		t.Fatalf("preview block = %s", preview.BlockReason)
 	}
+	createdAtSave := false
 	for _, account := range mustAccounts(t, h.st) {
 		if account.Name == "新基金组合" {
-			t.Fatal("new account was created before Import")
+			createdAtSave = true
 		}
+	}
+	if !createdAtSave {
+		t.Fatal("new account was not created when mapping was saved")
 	}
 
 	result, err := h.service.Import(preview.Token)
@@ -104,6 +109,9 @@ func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 	}
 	if len(result.Results) != 2 || result.Results[0].Status != "applied" || result.Results[1].Status != "applied" {
 		t.Fatalf("import result = %+v", result)
+	}
+	if result.Summary != "全部成功" || result.Applied != 2 {
+		t.Fatalf("summary = %+v", result)
 	}
 
 	var created *domain.Account
@@ -164,7 +172,10 @@ func TestEfundDesktopImportNewAndExisting(t *testing.T) {
 			t.Fatalf("repeat import = %+v", again)
 		}
 	}
-	if err := h.service.Undo(existing.ID); err != nil {
+	if again.Summary != "全部跳过" || again.Skipped != 2 {
+		t.Fatalf("repeat summary = %+v", again)
+	}
+	if err := h.service.UndoSnapshot(result.Results[0].SnapshotID); err != nil {
 		t.Fatal(err)
 	}
 	if latest, err := h.st.LastConfirmed(context.Background(), existing.ID); err != nil || latest != nil {
@@ -186,8 +197,8 @@ func TestEfundDesktopMergesGroupsAndFunds(t *testing.T) {
 		t.Fatal(err)
 	}
 	preview, err = h.service.Remap(preview.Token, []EfundSelection{
-		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: efundModeExisting, AccountID: account.ID},
-		{SalesOrg: efundSalesA, TradeAccount: "T0000002", Mode: efundModeExisting, AccountID: account.ID},
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true},
+		{SalesOrg: efundSalesA, TradeAccount: "T0000002", Mode: "map", AccountID: account.ID, Direct: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -299,7 +310,7 @@ func TestEfundDesktopAnomalyGoesPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	preview, err = h.service.Remap(preview.Token, []EfundSelection{
-		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: efundModeExisting, AccountID: account.ID},
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -343,6 +354,408 @@ func TestEfundDesktopEncryptedZipPassword(t *testing.T) {
 	}
 	if len(preview.Groups) != 1 {
 		t.Fatalf("preview = %+v", preview)
+	}
+}
+
+func TestEfundDesktopPortfolioTargetAndCashCarry(t *testing.T) {
+	h := newEfundHarness(t)
+	top := h.account(t, "示例账户")
+	portfolio, err := h.svc.UpsertAccount(context.Background(), domain.UpsertAccountInput{
+		Name: "示例组合", ParentID: top.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cash := int64(12_300)
+	previous, err := h.svc.Submit(context.Background(), domain.SubmitInput{
+		AccountID: portfolio.ID, AsOf: "2026-11-01", Source: domain.SourceMCP, CashCents: &cash,
+		Items: []domain.Item{{Name: "示例成长混合", Code: "000216", Quantity: "100", MarketValueCents: 10_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Confirm(context.Background(), previous.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "portfolio.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map",
+		AccountID: top.ID, PortfolioID: portfolio.ID,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Targets) != 1 || preview.Targets[0].AccountID != portfolio.ID ||
+		preview.Targets[0].CashCents == nil || *preview.Targets[0].CashCents != cash {
+		t.Fatalf("target = %+v", preview.Targets)
+	}
+	result, err := h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Status != "applied" {
+		t.Fatalf("result = %+v", result)
+	}
+	snapshot, err := h.st.GetSnapshot(context.Background(), result.Results[0].SnapshotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.CashCents == nil || *snapshot.CashCents != cash || !strings.Contains(snapshot.SourceNote, "现金沿用上次") {
+		t.Fatalf("snapshot = %+v", snapshot)
+	}
+}
+
+func TestEfundDesktopCreatesPortfolioWhenSavingMapping(t *testing.T) {
+	h := newEfundHarness(t)
+	top := h.account(t, "示例账户")
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "new-portfolio.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map",
+		AccountID: top.ID, PortfolioName: "新组合",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var portfolio *domain.Account
+	for _, account := range mustAccounts(t, h.st) {
+		if account.Name == "新组合" {
+			copy := account
+			portfolio = &copy
+		}
+	}
+	if portfolio == nil || portfolio.ParentID != top.ID || portfolio.Type != domain.AccountFund {
+		t.Fatalf("portfolio = %+v", portfolio)
+	}
+	if len(preview.Targets) != 1 || preview.Targets[0].AccountID != portfolio.ID {
+		t.Fatalf("preview = %+v", preview.Targets)
+	}
+}
+
+func TestEfundDesktopFailedMappingArchivesNewAccount(t *testing.T) {
+	h := newEfundHarness(t)
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "cleanup.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map",
+		AccountName: "将被清理",
+	}}); err == nil {
+		t.Fatal("incomplete mapping was accepted")
+	}
+	for _, account := range mustAccounts(t, h.st) {
+		if account.Name == "将被清理" && !account.Archived {
+			t.Fatalf("failed mapping left orphan account: %+v", account)
+		}
+	}
+}
+
+func TestEfundDesktopConflictsWithAnySource(t *testing.T) {
+	h := newEfundHarness(t)
+	account := h.account(t, "冲突账户")
+	prior, err := h.svc.Submit(context.Background(), domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-17", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例成长混合", Code: "000216", Quantity: "100", MarketValueCents: 10_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Confirm(context.Background(), prior.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "conflict.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.Targets[0].AlreadyImported || !strings.Contains(preview.Targets[0].ImportedStatus, "mcp") {
+		t.Fatalf("target = %+v", preview.Targets[0])
+	}
+	result, err := h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Status != "skipped" || !strings.Contains(result.Results[0].Message, "mcp") {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestEfundDesktopConflictsWithPendingOtherSource(t *testing.T) {
+	h := newEfundHarness(t)
+	account := h.account(t, "待确认账户")
+	if _, err := h.svc.Submit(context.Background(), domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-17", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例成长混合", Code: "000216", Quantity: "100", MarketValueCents: 10_000}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "pending.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.Targets[0].AlreadyImported || !strings.Contains(preview.Targets[0].ImportedStatus, "待确认") {
+		t.Fatalf("target = %+v", preview.Targets[0])
+	}
+	result, err := h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Status != "skipped" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestEfundDesktopPerTargetImport(t *testing.T) {
+	h := newEfundHarness(t)
+	first := h.account(t, "账户一")
+	second := h.account(t, "账户二")
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundHolding(2, "000217", "示例价值混合", efundSalesB, "T0000002", "10", "2.0", "2026/11/17", "20.00", "2026/11/17"),
+		efundFooter(2),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "targets.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: first.ID, Direct: true},
+		{SalesOrg: efundSalesB, TradeAccount: "T0000002", Mode: "map", AccountID: second.ID, Direct: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(preview.Targets) != 2 {
+		t.Fatalf("targets = %+v", preview.Targets)
+	}
+	key := preview.Targets[0].Key
+	result, err := h.service.ImportTarget(preview.Token, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Results) != 1 || result.Results[0].Status != "applied" {
+		t.Fatalf("result = %+v", result)
+	}
+	if snaps, err := h.st.ListConfirmed(context.Background(), second.ID, "", ""); err != nil || len(snaps) != 0 {
+		t.Fatalf("second account snapshots = %+v, err=%v", snaps, err)
+	}
+	again, err := h.service.ImportTarget(preview.Token, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Results[0].Status != "skipped" {
+		t.Fatalf("duplicate target = %+v", again)
+	}
+	if again.Summary != "全部跳过" {
+		t.Fatalf("duplicate summary = %+v", again)
+	}
+}
+
+func TestEfundDesktopRejectsNonFundTarget(t *testing.T) {
+	h := newEfundHarness(t)
+	stock, err := h.svc.UpsertAccount(context.Background(), domain.UpsertAccountInput{
+		Name: "股票账户", Type: domain.AccountStock,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "stock.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range preview.Accounts {
+		if account.ID == stock.ID {
+			t.Fatal("non-fund account appeared in import options")
+		}
+	}
+	if _, err := h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: stock.ID, Direct: true,
+	}}); err == nil || !strings.Contains(err.Error(), "fund") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestEfundDesktopBlocksNonCNYAndShareDateMismatch(t *testing.T) {
+	t.Run("non-CNY", func(t *testing.T) {
+		h := newEfundHarness(t)
+		account := h.account(t, "示例账户")
+		rows := [][]efundCell{
+			efundHeader(),
+			efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+			efundFooter(1),
+		}
+		rows[1][13] = efundStr("美元")
+		preview, err := h.service.Preview(efundBase64(efundBook(t, rows)), "", "usd.xlsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+			SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !preview.BlockedByData {
+			t.Fatalf("preview = %+v", preview)
+		}
+		if _, err := h.service.ImportTarget(preview.Token, preview.Targets[0].Key); err == nil {
+			t.Fatal("blocked target imported")
+		}
+	})
+	t.Run("share-date-mismatch", func(t *testing.T) {
+		h := newEfundHarness(t)
+		account := h.account(t, "示例账户")
+		data := efundBook(t, [][]efundCell{
+			efundHeader(),
+			efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+			efundHolding(2, "000217", "示例价值混合", efundSalesA, "T0000001", "10", "2.0", "2026/11/18", "20.00", "2026/11/18"),
+			efundFooter(2),
+		})
+		preview, err := h.service.Preview(efundBase64(data), "", "dates.xlsx")
+		if err != nil {
+			t.Fatal(err)
+		}
+		preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+			SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !preview.BlockedByData {
+			t.Fatalf("preview = %+v", preview)
+		}
+		if _, err := h.service.ImportTarget(preview.Token, preview.Targets[0].Key); err == nil {
+			t.Fatal("blocked target imported")
+		}
+	})
+}
+
+func TestEfundDesktopMappingWriteFailureStillImports(t *testing.T) {
+	h := newEfundHarness(t)
+	account := h.account(t, "示例账户")
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "mapping.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.service.mappingPath = filepath.Join(blocker, "efund-map.json")
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.MappingError == "" {
+		t.Fatalf("mapping error missing: %+v", preview)
+	}
+	result, err := h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Results[0].Status != "applied" {
+		t.Fatalf("result = %+v", result)
+	}
+	if len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "映射未保存") {
+		t.Fatalf("warnings = %+v", result.Warnings)
+	}
+}
+
+func TestEfundDesktopUndoRejectsNonLatest(t *testing.T) {
+	h := newEfundHarness(t)
+	account := h.account(t, "示例账户")
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "undo.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := h.service.Import(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	later, err := h.svc.Submit(context.Background(), domain.SubmitInput{
+		AccountID: account.ID, AsOf: "2026-11-18", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例成长混合", Code: "000216", Quantity: "100", MarketValueCents: 10_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Confirm(context.Background(), later.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.service.UndoSnapshot(result.Results[0].SnapshotID); err == nil ||
+		!strings.Contains(err.Error(), "最新") {
+		t.Fatalf("undo error = %v", err)
+	}
+	last, err := h.st.LastConfirmed(context.Background(), account.ID)
+	if err != nil || last == nil || last.ID != later.SnapshotID {
+		t.Fatalf("last confirmed = %+v, err=%v", last, err)
 	}
 }
 

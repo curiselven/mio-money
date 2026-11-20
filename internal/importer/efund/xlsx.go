@@ -32,10 +32,18 @@ type xlsxRun struct {
 	Text string `xml:"t"`
 }
 
+const (
+	maxSheetRows = 100000
+	maxColumns   = 16384
+)
+
 func readSheet(data []byte) ([]sheetRow, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("打开 xlsx 失败（需要已解密的 .xlsx）: %w", err)
+	}
+	if len(zr.File) > maxZipEntries {
+		return nil, fmt.Errorf("xlsx 条目过多：%d（上限 %d）", len(zr.File), maxZipEntries)
 	}
 
 	sheetPath := workbookSheetPath(zr)
@@ -56,6 +64,9 @@ func readSheet(data []byte) ([]sheetRow, error) {
 	if err := xml.Unmarshal(sheetData, &ws); err != nil {
 		return nil, fmt.Errorf("parse sheet: %w", err)
 	}
+	if len(ws.Rows) > maxSheetRows {
+		return nil, fmt.Errorf("sheet 行数过多：%d（上限 %d）", len(ws.Rows), maxSheetRows)
+	}
 
 	rows := make([]sheetRow, 0, len(ws.Rows))
 	lastNumber := 0
@@ -63,6 +74,9 @@ func readSheet(data []byte) ([]sheetRow, error) {
 		number := raw.Number
 		if number <= lastNumber {
 			number = lastNumber + 1
+		}
+		if number > maxSheetRows {
+			return nil, fmt.Errorf("sheet 行号超过 %d", maxSheetRows)
 		}
 		lastNumber = number
 		var cells []string
@@ -189,7 +203,14 @@ func readZipFile(zr *zip.Reader, name string) ([]byte, error) {
 			return nil, err
 		}
 		defer rc.Close()
-		return io.ReadAll(rc)
+		data, err := io.ReadAll(io.LimitReader(rc, maxXLSXBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if len(data) > maxXLSXBytes {
+			return nil, fmt.Errorf("xlsx 文件 %s 解压后超过 %d MB", name, maxXLSXBytes>>20)
+		}
+		return data, nil
 	}
 	return nil, fmt.Errorf("xlsx: %s not found", name)
 }
@@ -210,6 +231,9 @@ func cellColumn(ref string) (int, error) {
 	}
 	if letters == 0 {
 		return 0, fmt.Errorf("xlsx: bad cell reference %q", ref)
+	}
+	if col > maxColumns {
+		return 0, fmt.Errorf("xlsx: 单元格列号超过 XFD: %q", ref)
 	}
 	return col - 1, nil
 }

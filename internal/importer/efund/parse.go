@@ -71,7 +71,7 @@ func parseXLSX(file string, data []byte) (*Result, error) {
 		}
 		if h.CurrencyCode != "CNY" {
 			res.Warnings = append(res.Warnings, Warning{
-				Code: "currency", Severity: SeverityWarning, Row: row.number,
+				Code: "currency", Severity: SeverityBlocksWrite, Row: row.number,
 				Message: fmt.Sprintf("第 %d 行结算币种「%s」不是人民币，暂不换算", row.number, h.Currency),
 			})
 		}
@@ -92,8 +92,8 @@ func parseXLSX(file string, data []byte) (*Result, error) {
 	if len(shareDates) > 1 {
 		res.Warnings = append(res.Warnings, Warning{
 			Code:     "share_date_mismatch",
-			Severity: SeverityWarning,
-			Message:  "数据行的份额日期不一致，预览按最新日期归组",
+			Severity: SeverityBlocksWrite,
+			Message:  "数据行的份额日期不一致，禁止写入",
 		})
 	}
 	for date := range shareDates {
@@ -194,6 +194,9 @@ func parseHolding(rowNumber int, cells []string, headers map[string]int, assetCo
 		NAV:            strings.TrimSpace(cellAt(cells, headers["基金净值"])),
 		Currency:       strings.TrimSpace(cellAt(cells, headers["结算币种"])),
 		DividendMethod: strings.TrimSpace(cellAt(cells, headers["分红方式"])),
+	}
+	if len(h.FundCode) < 6 && intPattern.MatchString(h.FundCode) {
+		h.FundCode = strings.Repeat("0", 6-len(h.FundCode)) + h.FundCode
 	}
 	if h.FundCode == "" || h.FundName == "" {
 		return Holding{}, fmt.Errorf("第 %d 行缺少基金代码或基金名称", rowNumber)

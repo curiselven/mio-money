@@ -132,7 +132,7 @@ func TestLoanHistoryMigrationKeepsAnchorLoan(t *testing.T) {
 	if history, err := st.GetLoanHistory(ctx, "acc_old"); err != nil || history != nil {
 		t.Fatalf("history = %+v, err = %v", history, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
@@ -222,7 +222,7 @@ func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 	if err != nil || updated == nil || updated.DisbursementDate != "2025-12-15" {
 		t.Fatalf("updated = %+v, err = %v", updated, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
@@ -286,7 +286,72 @@ func TestEfundSourceMigrationKeepsSnapshots(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("insert efund snapshot: %v", err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
+		t.Fatalf("version = %d, err = %v", version, err)
+	}
+}
+
+func TestAccountParentMigration(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v6.db")
+	names := []string{
+		"0001_init.sql", "0002_loans.sql", "0003_loan_histories.sql",
+		"0004_loan_disbursement.sql", "0005_principal_rule.sql", "0006_efund_import_source.sql",
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		body, err := os.ReadFile(filepath.Join("migrations", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, stmt := range []string{
+		`INSERT INTO schema_version(version, applied_at) VALUES (1, '` + now + `'), (2, '` + now + `'),
+			(3, '` + now + `'), (4, '` + now + `'), (5, '` + now + `'), (6, '` + now + `')`,
+		`INSERT INTO accounts(id, name, type, created_at, updated_at) VALUES ('acc_old', '旧账户', 'fund', '` + now + `', '` + now + `')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	old, err := st.GetAccount(ctx, "acc_old")
+	if err != nil || old.ParentID != "" {
+		t.Fatalf("old account = %+v, err=%v", old, err)
+	}
+	child := &domain.Account{
+		ID: "acc_child", Name: "示例组合", ParentID: "acc_old", Type: domain.AccountFund,
+		Currency: "CNY", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}
+	if err := st.UpsertAccount(ctx, child); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetAccount(ctx, "acc_child")
+	if err != nil || got.ParentID != "acc_old" {
+		t.Fatalf("child = %+v, err=%v", got, err)
+	}
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }

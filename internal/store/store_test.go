@@ -75,7 +75,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("audit: %v", err)
 	}
 
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 6 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
 		t.Fatalf("schema version = %d, err=%v", version, err)
 	}
 }

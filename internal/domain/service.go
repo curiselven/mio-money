@@ -41,6 +41,8 @@ type Repo interface {
 	UpsertLoanHistory(ctx context.Context, h *LoanHistory) error
 	DeleteLoanHistory(ctx context.Context, accountID string) error
 	HasSnapshotAt(ctx context.Context, accountID, asOf string) (bool, error)
+	HasChildren(ctx context.Context, accountID string) (bool, error)
+	HasAnySnapshot(ctx context.Context, accountID string) (bool, error)
 }
 
 type Service struct {
@@ -99,6 +101,11 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 	account, err := s.repo.GetAccount(ctx, in.AccountID)
 	if err != nil {
 		return nil, err
+	}
+	if children, err := s.repo.HasChildren(ctx, account.ID); err != nil {
+		return nil, err
+	} else if children {
+		return nil, errors.New("该账户下有组合，快照必须写在具体组合上")
 	}
 	currency := strings.ToUpper(in.Currency)
 	if currency == "" {
@@ -231,6 +238,36 @@ func (s *Service) Undo(ctx context.Context, accountID string) (*Snapshot, error)
 	return snapshot, nil
 }
 
+// UndoSnapshot undoes one confirmed efund_import snapshot only when it is the
+// account's current confirmed snapshot.
+func (s *Service) UndoSnapshot(ctx context.Context, snapshotID string) (*Snapshot, error) {
+	snapshot, err := s.repo.GetSnapshot(ctx, snapshotID)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot.Source != SourceEfundImport {
+		return nil, errors.New("只能撤销基金E账户导入生成的快照")
+	}
+	if snapshot.Status != StatusConfirmed {
+		return nil, fmt.Errorf("快照当前状态是 %s，不能撤销", snapshot.Status)
+	}
+	latest, err := s.repo.LastConfirmed(ctx, snapshot.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil || latest.ID != snapshotID {
+		return nil, errors.New("该快照不是账户当前最新的已确认快照，不能撤销")
+	}
+	if err := s.repo.UpdateSnapshotStatus(ctx, snapshot.ID, StatusUndone, snapshot.ConfirmedAt); err != nil {
+		return nil, err
+	}
+	snapshot.Status = StatusUndone
+	if err := s.audit(ctx, "undo", snapshot, "按快照撤销基金E账户导入"); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
+}
+
 type UpsertAccountInput struct {
 	ID       string      `json:"id,omitempty"`
 	Name     string      `json:"name,omitempty"`
@@ -238,6 +275,7 @@ type UpsertAccountInput struct {
 	Type     AccountType `json:"type,omitempty"`
 	Currency string      `json:"currency,omitempty"`
 	Owner    string      `json:"owner,omitempty"`
+	ParentID string      `json:"parent_id,omitempty"`
 	Archived *bool       `json:"archived,omitempty"`
 }
 
@@ -246,6 +284,40 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 	if in.ID == "" {
 		if strings.TrimSpace(in.Name) == "" {
 			return nil, errors.New("name is required when creating an account")
+		}
+		if in.ParentID != "" {
+			parent, err := s.repo.GetAccount(ctx, in.ParentID)
+			if err != nil {
+				return nil, err
+			}
+			if parent.ParentID != "" {
+				return nil, errors.New("只允许两级账户：组合下不能再建组合")
+			}
+			if parent.Archived {
+				return nil, errors.New("上级账户已归档")
+			}
+			if parent.Type == AccountLiability {
+				return nil, errors.New("负债账户不能作为上级账户")
+			}
+			has, err := s.repo.HasAnySnapshot(ctx, parent.ID)
+			if err != nil {
+				return nil, err
+			}
+			if has {
+				return nil, errors.New("已有快照的账户不能作为上级账户")
+			}
+			if in.Type == "" {
+				in.Type = parent.Type
+			}
+			if in.Currency == "" {
+				in.Currency = parent.Currency
+			}
+			if in.Owner == "" {
+				in.Owner = parent.Owner
+			}
+			if in.Platform == "" {
+				in.Platform = parent.Platform
+			}
 		}
 		if !in.Type.Valid() {
 			return nil, fmt.Errorf("type %q must be one of cash, fund, stock, mixed, liability, other", in.Type)
@@ -261,6 +333,7 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 			Type:      in.Type,
 			Currency:  currency,
 			Owner:     in.Owner,
+			ParentID:  in.ParentID,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -295,7 +368,26 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 	if in.Owner != "" {
 		account.Owner = in.Owner
 	}
+	if in.ParentID != "" && in.ParentID != account.ParentID {
+		return nil, errors.New("不支持修改上级账户")
+	}
 	if in.Archived != nil {
+		if *in.Archived && !account.Archived {
+			hasChildren, err := s.repo.HasChildren(ctx, account.ID)
+			if err != nil {
+				return nil, err
+			}
+			if hasChildren {
+				return nil, errors.New("有组合的账户不能归档")
+			}
+			hasSnapshots, err := s.repo.HasAnySnapshot(ctx, account.ID)
+			if err != nil {
+				return nil, err
+			}
+			if hasSnapshots {
+				return nil, errors.New("有快照的账户不能归档")
+			}
+		}
 		account.Archived = *in.Archived
 	}
 	account.UpdatedAt = now

@@ -27,6 +27,9 @@ type OverviewAccount struct {
 	CashCents    *int64               `json:"cash_cents,omitempty"`
 	Items        []domain.Item        `json:"items"`
 	Loan         *domain.LoanBriefing `json:"loan,omitempty"`
+	ParentID     string               `json:"parent_id,omitempty"`
+	Depth        int                  `json:"depth"`
+	HasChildren  bool                 `json:"has_children"`
 }
 
 type Overview struct {
@@ -117,16 +120,63 @@ func (s *OverviewService) Get() (*Overview, error) {
 			SharePercent: share,
 			CashCents:    h.CashCents,
 			Items:        items,
+			ParentID:     account.ParentID,
 		})
 		if briefing, ok := loans[account.ID]; ok {
 			out.Accounts[len(out.Accounts)-1].Loan = &briefing
 		}
 	}
-	sort.SliceStable(out.Accounts, func(i, j int) bool {
-		if out.Accounts[i].ValueCents == out.Accounts[j].ValueCents {
-			return out.Accounts[i].Name < out.Accounts[j].Name
+	byID := map[string]int{}
+	for i, account := range out.Accounts {
+		byID[account.AccountID] = i
+	}
+	children := map[string][]OverviewAccount{}
+	tops := []OverviewAccount{}
+	for _, account := range out.Accounts {
+		if account.ParentID != "" {
+			if _, ok := byID[account.ParentID]; ok {
+				children[account.ParentID] = append(children[account.ParentID], account)
+				continue
+			}
 		}
-		return out.Accounts[i].ValueCents > out.Accounts[j].ValueCents
+		tops = append(tops, account)
+	}
+	for parent := range children {
+		list := children[parent]
+		sort.SliceStable(list, func(i, j int) bool {
+			if list[i].ValueCents == list[j].ValueCents {
+				return list[i].Name < list[j].Name
+			}
+			return list[i].ValueCents > list[j].ValueCents
+		})
+		children[parent] = list
+	}
+	sort.SliceStable(tops, func(i, j int) bool {
+		left := tops[i].ValueCents + sumOverviewChildren(children[tops[i].AccountID])
+		right := tops[j].ValueCents + sumOverviewChildren(children[tops[j].AccountID])
+		if left == right {
+			return tops[i].Name < tops[j].Name
+		}
+		return left > right
 	})
+	ordered := make([]OverviewAccount, 0, len(out.Accounts))
+	for _, top := range tops {
+		top.Depth = 0
+		top.HasChildren = len(children[top.AccountID]) > 0
+		ordered = append(ordered, top)
+		for _, child := range children[top.AccountID] {
+			child.Depth = 1
+			ordered = append(ordered, child)
+		}
+	}
+	out.Accounts = ordered
 	return out, nil
+}
+
+func sumOverviewChildren(accounts []OverviewAccount) int64 {
+	var total int64
+	for _, account := range accounts {
+		total += account.ValueCents
+	}
+	return total
 }

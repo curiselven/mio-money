@@ -160,6 +160,32 @@ func TestPreviewIgnoredGroup(t *testing.T) {
 	}
 }
 
+func TestPreviewTotalsByMappingState(t *testing.T) {
+	parsed, err := Parse(mappingBook(t))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	preview, err := Build(t.Context(), nil, parsed, &Mapping{Mappings: []MappingEntry{
+		{SalesOrg: salesA, TradeAccount: "T0000001", Ignore: true},
+		{SalesOrg: salesA, TradeAccount: "T0000002", Account: "示例新组合"},
+	}})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if preview.FileTotalCents != 122_300 || preview.MappedTotalCents != 1_000 ||
+		preview.IgnoredTotalCents != 121_000 || preview.UnmappedTotalCents != 300 {
+		t.Fatalf("totals = file %d, mapped %d, ignored %d, unmapped %d",
+			preview.FileTotalCents, preview.MappedTotalCents, preview.IgnoredTotalCents, preview.UnmappedTotalCents)
+	}
+	var text strings.Builder
+	Render(&text, preview)
+	for _, label := range []string{"文件总计", "已映射小计", "已忽略", "未映射"} {
+		if !strings.Contains(text.String(), label) {
+			t.Fatalf("render missing %s:\n%s", label, text.String())
+		}
+	}
+}
+
 func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "mio.db")

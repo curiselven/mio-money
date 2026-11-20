@@ -15,6 +15,7 @@
         待确认<span id="pending-count" class="count" hidden></span>
       </button>
       <button class="nav-item" type="button" role="tab" data-view="efund" aria-selected="false">导入 · 基金E账户</button>
+      <button class="nav-item" type="button" role="tab" data-view="accounts" aria-selected="false">账户管理</button>
       <button id="nav-loan" class="nav-item" type="button" role="tab" data-view="loan" aria-selected="false" hidden>房贷还款计划</button>
     </nav>
     <div class="spacer"></div>
@@ -110,6 +111,67 @@
         <p class="efund-hint">密码只用于本次解密，不保存、不写日志。xlsx 不需要密码；加密 zip 请在这里输入。</p>
       </section>
       <div id="efund-result"></div>
+    </section>
+
+    <section id="accounts-view" class="view" hidden>
+      <section class="panel">
+        <div class="ph"><h2>账户与组合</h2><span>两级结构 · 组合继承账户成员、币种和类型</span></div>
+        <div id="accounts-tree" class="account-tree"></div>
+      </section>
+
+      <div class="row2 account-forms">
+        <section class="panel">
+          <div class="ph"><h2>新建账户</h2><span>顶层账户</span></div>
+          <form id="account-create" class="efund-form" novalidate>
+            <label>名称<input name="name" required></label>
+            <label>平台<input name="platform"></label>
+            <label>类型
+              <select name="type">
+                <option value="fund">基金</option>
+                <option value="mixed">混合</option>
+                <option value="cash">现金</option>
+                <option value="stock">股票</option>
+                <option value="other">其他</option>
+              </select>
+            </label>
+            <label>币种<input name="currency" value="CNY"></label>
+            <label>归属成员<input name="owner" list="owner-options" placeholder="可输入新成员"></label>
+            <button class="btn pri" type="submit">新建账户</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="ph"><h2>新建组合</h2><span>挂在顶层账户下</span></div>
+          <form id="portfolio-create" class="efund-form" novalidate>
+            <label>上级账户<select name="parent_id"></select></label>
+            <label>组合名称<input name="name" required></label>
+            <button class="btn pri" type="submit">新建组合</button>
+          </form>
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="ph"><h2>编辑 / 归档</h2><span>只允许归档没有快照的账户或组合</span></div>
+        <form id="account-edit" class="efund-form" novalidate>
+          <label>对象<select name="target" id="account-edit-select"></select></label>
+          <label>名称<input name="name"></label>
+          <label class="account-only">平台<input name="platform"></label>
+          <label class="account-only">类型
+            <select name="type">
+              <option value="fund">基金</option>
+              <option value="mixed">混合</option>
+              <option value="cash">现金</option>
+              <option value="stock">股票</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label class="account-only">币种<input name="currency"></label>
+          <label class="account-only">归属成员<input name="owner" list="owner-options"></label>
+          <button class="btn pri" type="submit">保存修改</button>
+          <button class="btn account-archive" type="button">归档</button>
+        </form>
+      </section>
+      <datalist id="owner-options"></datalist>
     </section>
 
     <section id="loan-view" class="view" hidden>

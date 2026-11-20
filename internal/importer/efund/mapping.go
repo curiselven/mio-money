@@ -9,12 +9,13 @@ import (
 )
 
 type MappingEntry struct {
-	SalesOrg     string `json:"sales_org"`
-	TradeAccount string `json:"trade_account"`
-	Account      string `json:"account"`
-	AccountID    string `json:"account_id"`
-	Ignore       bool   `json:"ignore,omitempty"`
-	Hint         *Hint  `json:"hint,omitempty"`
+	SalesOrg      string `json:"sales_org"`
+	TradeAccount  string `json:"trade_account"`
+	Account       string `json:"account"`
+	AccountID     string `json:"account_id"`
+	ParentAccount string `json:"parent_account,omitempty"`
+	Ignore        bool   `json:"ignore,omitempty"`
+	Hint          *Hint  `json:"hint,omitempty"`
 }
 
 type Mapping struct {
@@ -42,6 +43,7 @@ func LoadMapping(file string) (*Mapping, error) {
 		entry.TradeAccount = strings.TrimSpace(entry.TradeAccount)
 		entry.Account = strings.TrimSpace(entry.Account)
 		entry.AccountID = strings.TrimSpace(entry.AccountID)
+		entry.ParentAccount = strings.TrimSpace(entry.ParentAccount)
 		if entry.SalesOrg == "" || entry.TradeAccount == "" {
 			return nil, fmt.Errorf("mapping[%d]: sales_org and trade_account are required", i)
 		}

@@ -6,6 +6,7 @@ const overviewView = document.getElementById("overview-view");
 const pendingView = document.getElementById("pending-view");
 const loanView = document.getElementById("loan-view");
 const efundView = document.getElementById("efund-view");
+const accountsView = document.getElementById("accounts-view");
 const navLoan = document.getElementById("nav-loan");
 const navItems = [...document.querySelectorAll(".nav-item")];
 const statusBox = document.getElementById("status");
@@ -37,6 +38,12 @@ const efundPasswordWrap = document.getElementById("efund-password-wrap");
 const efundPassword = document.getElementById("efund-password");
 const efundParse = document.getElementById("efund-parse");
 const efundResultRoot = document.getElementById("efund-result");
+const accountsTree = document.getElementById("accounts-tree");
+const accountCreateForm = document.getElementById("account-create");
+const portfolioCreateForm = document.getElementById("portfolio-create");
+const accountEditForm = document.getElementById("account-edit");
+const accountEditSelect = document.getElementById("account-edit-select");
+const ownerOptions = document.getElementById("owner-options");
 
 const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "对账单", manual: "手动", efund_import: "基金E账户" };
 const typeLabels = { cash: "现金", fund: "基金", stock: "股票", mixed: "混合", liability: "负债", other: "其他" };
@@ -59,6 +66,11 @@ let reconcileSuggestions = [];
 let efundFile = null;
 let efundPreview = null;
 let efundImportResult = null;
+let efundBusy = false;
+let efundRefreshError = "";
+let efundSaveTimer = 0;
+let accountTree = null;
+let archiveArmed = false;
 
 async function call(method, ...args) {
   if (!globalThis.wails?.Call?.ByName) {
@@ -192,6 +204,7 @@ function renderAccounts(accounts) {
   }
   for (const account of accounts) {
     const row = document.createElement("tr");
+    if (account.depth) row.className = "account-row-child";
     const name = document.createElement("span");
     name.className = "account-name";
     name.textContent = account.name;
@@ -244,7 +257,7 @@ function renderAccounts(accounts) {
       sub.append(cell(sub, ""), cell(sub, ""));
       accountsBody.append(sub);
     }
-    if (account.items.length === 0 && account.cash_cents == null) {
+    if (account.items.length === 0 && account.cash_cents == null && !account.has_children) {
       const sub = document.createElement("tr");
       sub.className = "sub";
       sub.append(cell(sub, "还没有持仓明细", "l muted"), cell(sub, ""), cell(sub, ""), cell(sub, ""), cell(sub, ""));
@@ -1318,6 +1331,7 @@ async function parseEfundFile() {
   efundParse.disabled = true;
   efundPreview = null;
   efundImportResult = null;
+  efundRefreshError = "";
   efundResultRoot.replaceChildren();
   showStatus("正在解析文件…");
   let password = efundPassword.value;
@@ -1339,41 +1353,72 @@ async function parseEfundFile() {
 
 function efundSelections() {
   return [...efundResultRoot.querySelectorAll(".efund-map-row")].map((row) => {
-    const select = row.querySelector(".efund-select");
+    const accountSelect = row.querySelector(".efund-account-select");
+    const portfolioSelect = row.querySelector(".efund-portfolio-select");
     const selection = {
       sales_org: row.dataset.sales,
       trade_account: row.dataset.trade,
       mode: "unmapped",
     };
-    if (select.value === "ignore") {
+    if (accountSelect.value === "ignore") {
       selection.mode = "ignore";
-    } else if (select.value === "new") {
-      selection.mode = "new";
-      selection.account_name = row.querySelector(".efund-account-name").value.trim();
-    } else if (select.value.startsWith("existing:")) {
-      selection.mode = "existing";
-      selection.account_id = select.value.slice("existing:".length);
+      return selection;
     }
+    if (accountSelect.value === "new") {
+      selection.mode = "map";
+      selection.account_name = row.querySelector(".efund-account-name").value.trim();
+    } else if (accountSelect.value.startsWith("account:")) {
+      selection.mode = "map";
+      selection.account_id = accountSelect.value.slice("account:".length);
+    } else {
+      return selection;
+    }
+    const portfolio = portfolioSelect?.value || "none";
+    if (portfolio === "direct") selection.direct = true;
+    else if (portfolio === "new") selection.portfolio_name = row.querySelector(".efund-portfolio-name").value.trim();
+    else if (portfolio.startsWith("portfolio:")) selection.portfolio_id = portfolio.slice("portfolio:".length);
     return selection;
   });
 }
 
 async function saveEfundMapping(silent = false) {
-  if (!efundPreview) return false;
+  if (!efundPreview || efundBusy) return false;
   const selections = efundSelections();
-  if (selections.some((selection) => selection.mode === "new" && !selection.account_name)) {
+  if (selections.some((selection) => selection.mode === "map" && !selection.account_id && !selection.account_name)) {
     showStatus("请填写新账户名称", "error");
+    return false;
+  }
+  if (selections.some(efundSelectionIncomplete)) {
+    showStatus("请选择组合或直接记在账户上", "error");
     return false;
   }
   try {
     efundPreview = await call("EfundService.Remap", efundPreview.token, selections);
     renderEfund(efundPreview);
-    if (!silent) showStatus("映射已保存");
+    if (!silent) {
+      showStatus(efundPreview.mapping_error ? `映射未保存：${efundPreview.mapping_error}` : "映射已保存");
+    }
     return true;
   } catch (error) {
     showStatus(errorText(error), "error");
     return false;
   }
+}
+
+function scheduleEfundSave() {
+  if (efundBusy) return;
+  clearTimeout(efundSaveTimer);
+  efundSaveTimer = setTimeout(async () => {
+    const selections = efundSelections();
+    const incomplete = selections.some(efundSelectionIncomplete);
+    if (!incomplete) await saveEfundMapping(true);
+  }, 350);
+}
+
+function efundSelectionIncomplete(selection) {
+  if (selection.mode !== "map") return false;
+  if (!selection.account_id && !selection.account_name) return true;
+  return !selection.direct && !selection.portfolio_id && !selection.portfolio_name;
 }
 
 function efundModeBadge(group) {
@@ -1400,8 +1445,9 @@ function renderEfundGroup(group, preview) {
   const row = efundNode("div", "efund-map-row");
   row.dataset.sales = group.sales_org;
   row.dataset.trade = group.trade_account;
-  row.append(efundNode("label", "", "映射到"));
-  const select = efundNode("select", "efund-select");
+  row.append(efundNode("label", "", "账户"));
+  const accountSelect = efundNode("select", "efund-select efund-account-select");
+  const topAccounts = preview.accounts.filter((account) => !account.parent_id);
   const options = [
     ["unmapped", "未选择"],
     ["ignore", "本次忽略"],
@@ -1411,37 +1457,111 @@ function renderEfundGroup(group, preview) {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;
-    select.append(option);
+    accountSelect.append(option);
   }
-  for (const account of preview.accounts) {
+  for (const account of topAccounts) {
     const option = document.createElement("option");
-    option.value = `existing:${account.id}`;
+    option.value = `account:${account.id}`;
     option.textContent = `${account.name}${account.platform ? ` · ${account.platform}` : ""}`;
-    select.append(option);
+    accountSelect.append(option);
   }
-  if (group.mode === "ignore") select.value = "ignore";
-  else if (group.mode === "new") select.value = "new";
-  else if (group.mode === "existing") select.value = `existing:${group.account_id}`;
-  else select.value = "unmapped";
-  row.append(select);
+  if (group.mode === "ignore") accountSelect.value = "ignore";
+  else if (group.mode === "existing") accountSelect.value = `account:${group.top_account_id}`;
+  else accountSelect.value = "unmapped";
+  row.append(accountSelect);
 
   const nameInput = document.createElement("input");
   nameInput.type = "text";
   nameInput.className = "efund-account-name";
   nameInput.placeholder = `新账户名称（平台：${group.sales_org}）`;
-  nameInput.value = group.mode === "new" ? group.account_name : "";
-  nameInput.hidden = group.mode !== "new";
+  nameInput.hidden = accountSelect.value !== "new";
   row.append(nameInput);
+
+  const portfolioSelect = efundNode("select", "efund-select efund-portfolio-select");
+  const portfolioName = document.createElement("input");
+  portfolioName.type = "text";
+  portfolioName.className = "efund-portfolio-name";
+  portfolioName.placeholder = "新组合名称";
+  row.append(efundNode("label", "", "组合"), portfolioSelect, portfolioName);
+
+  function currentTop() {
+    if (accountSelect.value.startsWith("account:")) {
+      return preview.accounts.find((account) => account.id === accountSelect.value.slice("account:".length)) || null;
+    }
+    return null;
+  }
+
+  function fillPortfolioOptions(initialValue) {
+    const top = currentTop();
+    portfolioSelect.replaceChildren();
+    const none = document.createElement("option");
+    none.value = "none";
+    none.textContent = "请选择组合";
+    portfolioSelect.append(none);
+    if (accountSelect.value === "new" || (top && !top.has_children)) {
+      const direct = document.createElement("option");
+      direct.value = "direct";
+      direct.textContent = "直接记在账户上";
+      portfolioSelect.append(direct);
+    }
+    const create = document.createElement("option");
+    create.value = "new";
+    create.textContent = "新建组合";
+    portfolioSelect.append(create);
+    if (top) {
+      for (const portfolio of preview.accounts.filter((account) => account.parent_id === top.id)) {
+        const option = document.createElement("option");
+        option.value = `portfolio:${portfolio.id}`;
+        option.textContent = portfolio.name;
+        portfolioSelect.append(option);
+      }
+    }
+    if (initialValue && [...portfolioSelect.options].some((option) => option.value === initialValue)) {
+      portfolioSelect.value = initialValue;
+    } else if (accountSelect.value === "new") {
+      portfolioSelect.value = "direct";
+    } else if (portfolioSelect.value === "direct" && top?.has_children) {
+      portfolioSelect.value = "none";
+    }
+    updatePortfolioInputs();
+  }
+
+  function updatePortfolioInputs() {
+    const mappingVisible = accountSelect.value.startsWith("account:") || accountSelect.value === "new";
+    portfolioSelect.hidden = !mappingVisible;
+    portfolioName.hidden = !mappingVisible || portfolioSelect.value !== "new";
+    if (!portfolioName.hidden) portfolioName.focus();
+  }
+
+  const initialPortfolio = group.direct
+    ? "direct"
+    : group.portfolio_id
+      ? `portfolio:${group.portfolio_id}`
+      : "none";
+  fillPortfolioOptions(initialPortfolio);
   if (group.issue) row.append(efundNode("span", "efund-issue", group.issue));
   card.append(row);
 
-  select.addEventListener("change", () => {
-    nameInput.hidden = select.value !== "new";
+  accountSelect.addEventListener("change", () => {
+    nameInput.hidden = accountSelect.value !== "new";
     if (!nameInput.hidden) nameInput.focus();
+    fillPortfolioOptions("");
     markEfundDirty();
+    scheduleEfundSave();
   });
-  nameInput.addEventListener("input", markEfundDirty);
-  nameInput.addEventListener("change", markEfundDirty);
+  nameInput.addEventListener("change", () => {
+    markEfundDirty();
+    scheduleEfundSave();
+  });
+  portfolioSelect.addEventListener("change", () => {
+    updatePortfolioInputs();
+    markEfundDirty();
+    scheduleEfundSave();
+  });
+  portfolioName.addEventListener("change", () => {
+    markEfundDirty();
+    scheduleEfundSave();
+  });
 
   if (group.holdings.length) {
     const details = efundNode("details", "efund-details");
@@ -1473,7 +1593,7 @@ function renderEfundGroup(group, preview) {
   return card;
 }
 
-function renderEfundTarget(target) {
+function renderEfundTarget(target, preview) {
   const card = efundNode("article", "efund-target");
   const head = efundNode("div", "efund-target-head");
   const left = efundNode("div");
@@ -1484,6 +1604,9 @@ function renderEfundTarget(target) {
   left.append(title);
   left.append(efundNode("p", "efund-sub",
     `${target.fund_count} 只基金 · ${money(target.market_value_cents)}${target.previous_as_of ? ` · 对比 ${target.previous_as_of}` : " · 无历史快照"}`));
+  if (target.cash_cents != null) {
+    left.append(efundNode("p", "efund-sub", `现金沿用上次：${money(target.cash_cents)}`));
+  }
   head.append(left);
   card.append(head);
 
@@ -1526,13 +1649,29 @@ function renderEfundTarget(target) {
     }
     card.append(warning);
   }
+  const actions = efundNode("div", "efund-actions");
+  if (target.group_count > 1) {
+    actions.append(efundNode("span", "efund-hint", `该目标合并 ${target.group_count} 个交易账户，会一并导入`));
+  }
+  const button = efundNode("button", "btn efund-import-run", "导入并确认这一组");
+  button.type = "button";
+  button.disabled = target.already_imported || preview.blocked_by_data || efundBusy;
+  if (target.already_imported) button.title = `已在 ${target.imported_status} 中`;
+  button.addEventListener("click", () => importEfundTarget(target));
+  actions.append(button);
+  card.append(actions);
   return card;
 }
 
 function renderEfundResults() {
   if (!efundImportResult) return null;
   const panel = efundNode("section", "panel efund-results");
-  panel.append(efundNode("h3", "", "导入结果"));
+  panel.append(efundNode("h3", "", `导入结果：${efundImportResult.summary || "已完成"}`));
+  panel.append(efundNode("p", "efund-result-message",
+    `已生效 ${efundImportResult.applied || 0} · 待确认 ${efundImportResult.pending || 0} · 已跳过 ${efundImportResult.skipped || 0} · 失败 ${efundImportResult.failed || 0}`));
+  if (efundRefreshError) {
+    panel.append(efundNode("p", "efund-warning", efundRefreshError));
+  }
   for (const result of efundImportResult.results) {
     const row = efundNode("div", "efund-result-row");
     const head = efundNode("div", "efund-result-head");
@@ -1556,8 +1695,9 @@ function renderEfundResults() {
 
     const actions = efundNode("div", "efund-actions");
     if (result.status === "applied") {
-      const undo = efundNode("button", "btn", "撤销最近确认");
+      const undo = efundNode("button", "btn", "撤销本次快照");
       undo.type = "button";
+      undo.disabled = efundBusy;
       undo.addEventListener("click", () => undoEfund(result));
       actions.append(undo);
     } else if (result.status === "pending") {
@@ -1576,47 +1716,96 @@ function renderEfundResults() {
 }
 
 async function importEfund() {
+  if (efundBusy) return;
   const saved = await saveEfundMapping(true);
   if (!saved) return;
   if (!efundPreview?.can_import) {
     showStatus(efundPreview?.block_reason || "当前不能导入", "error");
     return;
   }
+  await runEfundImport(async () => call("EfundService.Import", efundPreview.token));
+}
+
+async function importEfundTarget(target) {
+  if (efundBusy) return;
+  const key = target.key;
+  const saved = await saveEfundMapping(true);
+  if (!saved) return;
+  if (efundPreview?.blocked_by_data) {
+    showStatus(efundPreview.block_reason || "文件校验未通过", "error");
+    return;
+  }
+  if (!efundPreview?.targets.some((item) => item.key === key)) {
+    showStatus("目标已变化，请保存映射后重试", "error");
+    return;
+  }
+  await runEfundImport(async () => call("EfundService.ImportTarget", efundPreview.token, key));
+}
+
+async function runEfundImport(action) {
+  efundBusy = true;
+  efundRefreshError = "";
+  efundResultRoot.querySelectorAll("button, select, input").forEach((element) => {
+    element.disabled = true;
+  });
   showStatus("正在导入…");
   try {
-    efundImportResult = await call("EfundService.Import", efundPreview.token);
-    efundPreview = await call("EfundService.Refresh", efundPreview.token);
-    renderEfund(efundPreview);
-    await reloadOverview();
+    efundImportResult = await action();
+    try {
+      efundPreview = await call("EfundService.Refresh", efundPreview.token);
+    } catch (error) {
+      efundRefreshError = `预览刷新失败：${errorText(error)}`;
+    }
+    try {
+      await reloadOverview();
+    } catch (error) {
+      efundRefreshError = `${efundRefreshError}${efundRefreshError ? "；" : ""}总览刷新失败：${errorText(error)}`;
+    }
     try {
       await reloadPending();
-    } catch (_) {
-      // Pending view is refreshed on demand if it cannot be loaded now.
+    } catch (error) {
+      efundRefreshError = `${efundRefreshError}${efundRefreshError ? "；" : ""}待确认刷新失败：${errorText(error)}`;
     }
-    showStatus("导入完成");
+    showStatus(efundImportResult.summary || "导入完成");
   } catch (error) {
     showStatus(errorText(error), "error");
+  } finally {
+    efundBusy = false;
+    if (efundPreview) renderEfund(efundPreview);
   }
 }
 
 async function undoEfund(result) {
+  if (efundBusy) return;
+  efundBusy = true;
+  efundRefreshError = "";
   try {
-    await call("EfundService.Undo", result.account_id);
+    await call("EfundService.UndoSnapshot", result.snapshot_id);
     result.status = "undone";
-    result.message = "已撤销该账户最近一次确认快照";
+    result.message = "已撤销该次导入快照";
     if (efundPreview) {
-      efundPreview = await call("EfundService.Refresh", efundPreview.token);
-      renderEfund(efundPreview);
+      try {
+        efundPreview = await call("EfundService.Refresh", efundPreview.token);
+      } catch (error) {
+        efundRefreshError = `预览刷新失败：${errorText(error)}`;
+      }
     }
-    await reloadOverview();
+    try {
+      await reloadOverview();
+    } catch (error) {
+      efundRefreshError = `${efundRefreshError}${efundRefreshError ? "；" : ""}总览刷新失败：${errorText(error)}`;
+    }
     try {
       await reloadPending();
-    } catch (_) {
-      // Ignore a pending refresh failure; the overview still updates.
+    } catch (error) {
+      efundRefreshError = `${efundRefreshError}${efundRefreshError ? "；" : ""}待确认刷新失败：${errorText(error)}`;
     }
-    showStatus("已撤销最近一次确认快照");
+    showStatus("已撤销本次快照");
   } catch (error) {
     showStatus(errorText(error), "error");
+  } finally {
+    efundBusy = false;
+    if (efundPreview) renderEfund(efundPreview);
   }
 }
 
@@ -1644,6 +1833,14 @@ function renderEfund(preview) {
     meta.append(efundMetaItem("净值日期不一致", `${preview.meta.nav_date_mismatch_funds} 只`, false));
   }
   metaPanel.append(meta);
+  const totals = efundNode("div", "efund-meta");
+  totals.append(
+    efundMetaItem("文件总计", money(preview.file_total_cents)),
+    efundMetaItem("已映射小计", money(preview.total_market_value_cents)),
+    efundMetaItem("已忽略", money(preview.ignored_total_cents)),
+    efundMetaItem("未映射", money(preview.unmapped_total_cents)),
+  );
+  metaPanel.append(totals);
 
   if (preview.warnings.length) {
     const warnings = efundNode("ul", "efund-warnings");
@@ -1660,7 +1857,15 @@ function renderEfund(preview) {
   const groupsHead = efundNode("div", "ph");
   groupsHead.append(efundNode("h2", "", "交易账户"), efundNode("span", "", `${preview.groups.length} 个`));
   groupsPanel.append(groupsHead);
-  for (const group of preview.groups) groupsPanel.append(renderEfundGroup(group, preview));
+  const unresolved = preview.groups.filter((group) => group.mode === "unmapped");
+  const resolved = preview.groups.filter((group) => group.mode !== "unmapped");
+  for (const group of unresolved) groupsPanel.append(renderEfundGroup(group, preview));
+  if (resolved.length) {
+    const details = efundNode("details", "efund-details efund-resolved");
+    details.append(efundNode("summary", "", `已映射 / 已忽略（${resolved.length} 个，点击展开）`));
+    for (const group of resolved) details.append(renderEfundGroup(group, preview));
+    groupsPanel.append(details);
+  }
   efundResultRoot.append(groupsPanel);
 
   if (preview.targets.length) {
@@ -1672,7 +1877,7 @@ function renderEfund(preview) {
     );
     targetsPanel.append(targetsHead);
     const targets = efundNode("div", "efund-targets");
-    for (const target of preview.targets) targets.append(renderEfundTarget(target));
+    for (const target of preview.targets) targets.append(renderEfundTarget(target, preview));
     targetsPanel.append(targets);
     efundResultRoot.append(targetsPanel);
   }
@@ -1687,12 +1892,13 @@ function renderEfund(preview) {
     actions.append(efundNode("p", "efund-hint", "正常会直接生效；命中异常规则会进入「待确认」。"));
   }
   const buttons = efundNode("div", "efund-actions");
-  const save = efundNode("button", "btn", "保存映射");
+  const save = efundNode("button", "btn efund-save-map", "保存映射");
   save.type = "button";
+  save.disabled = efundBusy;
   save.addEventListener("click", () => saveEfundMapping(false));
-  const run = efundNode("button", "btn pri", "导入并确认");
+  const run = efundNode("button", "btn pri efund-import-run", "全部导入并确认");
   run.type = "button";
-  run.disabled = preview.blocked_by_data;
+  run.disabled = !preview.can_import || efundBusy || !preview.targets.some((target) => !target.already_imported);
   if (preview.block_reason) run.title = preview.block_reason;
   run.addEventListener("click", importEfund);
   buttons.append(save, run);
@@ -1707,6 +1913,7 @@ efundFileInput.addEventListener("change", () => {
   efundFile = efundFileInput.files?.[0] || null;
   efundPreview = null;
   efundImportResult = null;
+  efundRefreshError = "";
   efundResultRoot.replaceChildren();
   efundFileName.textContent = efundFile ? efundFile.name : "未选择文件";
   efundPasswordWrap.hidden = !(efundFile && efundFile.name.toLowerCase().endsWith(".zip"));
@@ -1717,6 +1924,222 @@ efundFileInput.addEventListener("change", () => {
 
 efundParse.addEventListener("click", parseEfundFile);
 
+/* ---------- account management ---------- */
+
+function accountItem(id) {
+  if (!accountTree) return null;
+  return [...accountTree.accounts, ...accountTree.portfolios].find((item) => item.id === id) || null;
+}
+
+function accountLabel(item) {
+  if (!item) return "";
+  if (!item.parent_id) return `账户：${item.name}`;
+  const parent = accountItem(item.parent_id);
+  return `组合：${parent?.name || "?"} / ${item.name}`;
+}
+
+function renderAccountTree(tree) {
+  accountsTree.replaceChildren();
+  if (!tree.accounts.length) {
+    accountsTree.append(efundNode("p", "muted", "还没有账户"));
+    return;
+  }
+  for (const top of tree.accounts) {
+    const block = efundNode("article", "account-block");
+    const head = efundNode("div", "account-block-head");
+    const left = efundNode("div");
+    const title = efundNode("h3", "", top.name);
+    if (top.archived) title.append(efundNode("span", "efund-tag muted-tag", "已归档"));
+    left.append(title);
+    left.append(efundNode("p", "meta-line",
+      `${typeLabels[top.type] || top.type} · ${top.currency} · ${top.platform || "无平台"} · ${top.owner || "未归属"} · ${tree.portfolios.filter((p) => p.parent_id === top.id).length} 个组合`));
+    head.append(left);
+    const actions = efundNode("div", "efund-actions");
+    const edit = efundNode("button", "btn", "编辑");
+    edit.type = "button";
+    edit.addEventListener("click", () => {
+      accountEditSelect.value = top.id;
+      syncAccountEdit();
+    });
+    const add = efundNode("button", "btn", "新建组合");
+    add.type = "button";
+    add.addEventListener("click", () => {
+      portfolioCreateForm.elements.parent_id.value = top.id;
+      portfolioCreateForm.elements.name.focus();
+    });
+    actions.append(edit);
+    if (!top.archived && !top.has_snapshots) actions.append(add);
+    head.append(actions);
+    block.append(head);
+
+    const list = efundNode("ul", "portfolio-list");
+    for (const portfolio of tree.portfolios.filter((p) => p.parent_id === top.id)) {
+      const li = efundNode("li");
+      const name = efundNode("span", "", portfolio.name);
+      if (portfolio.archived) name.append(efundNode("span", "efund-tag muted-tag", "已归档"));
+      if (portfolio.has_snapshots) name.append(efundNode("span", "efund-tag", "有快照"));
+      name.append(efundNode("span", "muted", ` · ${portfolio.currency} · ${portfolio.owner || "未归属"}`));
+      const button = efundNode("button", "btn", "编辑");
+      button.type = "button";
+      button.addEventListener("click", () => {
+        accountEditSelect.value = portfolio.id;
+        syncAccountEdit();
+      });
+      li.append(name, button);
+      list.append(li);
+    }
+    if (!list.children.length) {
+      list.append(efundNode("li", "muted", "没有组合；可以直接把持仓记在这个账户上"));
+    }
+    block.append(list);
+    accountsTree.append(block);
+  }
+}
+
+function fillAccountOptions(tree) {
+  ownerOptions.replaceChildren();
+  for (const owner of tree.owners) {
+    const option = document.createElement("option");
+    option.value = owner;
+    ownerOptions.append(option);
+  }
+  const parent = portfolioCreateForm.elements.parent_id;
+  parent.replaceChildren();
+  for (const top of tree.accounts.filter((item) => !item.archived && !item.has_snapshots)) {
+    const option = document.createElement("option");
+    option.value = top.id;
+    option.textContent = top.name;
+    parent.append(option);
+  }
+  accountEditSelect.replaceChildren();
+  for (const item of [...tree.accounts, ...tree.portfolios]) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = accountLabel(item);
+    accountEditSelect.append(option);
+  }
+  syncAccountEdit();
+}
+
+function syncAccountEdit() {
+  archiveArmed = false;
+  const item = accountItem(accountEditSelect.value) || accountItem(accountTree?.accounts[0]?.id);
+  if (!item) return;
+  accountEditSelect.value = item.id;
+  const isPortfolio = Boolean(item.parent_id);
+  accountEditForm.classList.toggle("portfolio-mode", isPortfolio);
+  accountEditForm.elements.name.value = item.name;
+  accountEditForm.elements.platform.value = item.platform || "";
+  accountEditForm.elements.type.value = item.type || "fund";
+  accountEditForm.elements.currency.value = item.currency || "CNY";
+  accountEditForm.elements.owner.value = item.owner || "";
+  const archive = accountEditForm.querySelector(".account-archive");
+  archive.textContent = "归档";
+  archive.classList.remove("danger");
+  archive.disabled = item.archived || item.has_snapshots || (!isPortfolio && item.has_children);
+  archive.title = archive.disabled ? "有快照或有组合的对象不能归档" : "";
+}
+
+async function reloadAccounts() {
+  accountTree = await call("AccountService.List");
+  renderAccountTree(accountTree);
+  fillAccountOptions(accountTree);
+  if (efundPreview && !efundBusy) {
+    try {
+      efundPreview = await call("EfundService.Refresh", efundPreview.token);
+    } catch (_) {
+      // The import preview can be re-parsed if the session expired.
+    }
+  }
+}
+
+accountCreateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const elements = accountCreateForm.elements;
+  try {
+    await call("AccountService.SaveAccount", {
+      name: elements.name.value.trim(),
+      platform: elements.platform.value.trim(),
+      type: elements.type.value,
+      currency: elements.currency.value.trim() || "CNY",
+      owner: elements.owner.value.trim(),
+    });
+    accountCreateForm.reset();
+    accountCreateForm.elements.currency.value = "CNY";
+    await reloadAccounts();
+    showStatus("账户已创建");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+  }
+});
+
+portfolioCreateForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const elements = portfolioCreateForm.elements;
+  try {
+    await call("AccountService.SavePortfolio", {
+      parent_id: elements.parent_id.value,
+      name: elements.name.value.trim(),
+    });
+    elements.name.value = "";
+    await reloadAccounts();
+    showStatus("组合已创建");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+  }
+});
+
+accountEditSelect.addEventListener("change", syncAccountEdit);
+
+accountEditForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const item = accountItem(accountEditSelect.value);
+  if (!item) return;
+  const elements = accountEditForm.elements;
+  try {
+    if (item.parent_id) {
+      await call("AccountService.SavePortfolio", { id: item.id, name: elements.name.value.trim() });
+    } else {
+      await call("AccountService.SaveAccount", {
+        id: item.id,
+        name: elements.name.value.trim(),
+        platform: elements.platform.value.trim(),
+        type: elements.type.value,
+        currency: elements.currency.value.trim() || "CNY",
+        owner: elements.owner.value.trim(),
+      });
+    }
+    await reloadAccounts();
+    showStatus("修改已保存");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+  }
+});
+
+accountEditForm.querySelector(".account-archive").addEventListener("click", async () => {
+  const item = accountItem(accountEditSelect.value);
+  if (!item) return;
+  const button = accountEditForm.querySelector(".account-archive");
+  if (!archiveArmed) {
+    archiveArmed = true;
+    button.textContent = "再点一次确认归档";
+    button.classList.add("danger");
+    return;
+  }
+  try {
+    if (item.parent_id) {
+      await call("AccountService.SavePortfolio", { id: item.id, archived: true });
+    } else {
+      await call("AccountService.SaveAccount", { id: item.id, archived: true });
+    }
+    await reloadAccounts();
+    showStatus("已归档");
+  } catch (error) {
+    showStatus(errorText(error), "error");
+    syncAccountEdit();
+  }
+});
+
 /* ---------- navigation ---------- */
 
 async function reloadOverview() {
@@ -1725,6 +2148,9 @@ async function reloadOverview() {
 
 async function showView(view) {
   if (view === "loan" && !loanAccount) view = "overview";
+  if (currentView === "efund" && view !== "efund") {
+    efundPassword.value = "";
+  }
   currentView = view;
   for (const item of navItems) {
     const active = item.dataset.view === view;
@@ -1735,10 +2161,13 @@ async function showView(view) {
   pendingView.hidden = view !== "pending";
   loanView.hidden = view !== "loan";
   efundView.hidden = view !== "efund";
+  accountsView.hidden = view !== "accounts";
   statusBox.hidden = true;
   try {
     if (view === "overview") await reloadOverview();
     else if (view === "pending") await reloadPending();
+    else if (view === "accounts") await reloadAccounts();
+    else if (view === "efund" && efundPreview) renderEfund(efundPreview);
   } catch (error) {
     showStatus(errorText(error), "error");
   }
@@ -1752,6 +2181,7 @@ refresh.addEventListener("click", () => {
   if (currentView === "overview") showView("overview");
   else if (currentView === "pending") showView("pending");
   else if (currentView === "efund") showStatus("导入页不需要刷新，可继续当前预览");
+  else if (currentView === "accounts") showView("accounts");
   else previewLoanForm();
 });
 

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -18,6 +19,9 @@ func NewServer(svc *domain.Service) *sdk.Server {
 		Name:        "submit_snapshot",
 		Description: "Store a pending snapshot of one account and return a diff preview. Nothing goes live until confirm_snapshot. Amounts are integer cents. quantity is a decimal string. Empty items means the position is fully closed.",
 	}, func(ctx context.Context, _ *sdk.CallToolRequest, in SubmitSnapshotInput) (*sdk.CallToolResult, domain.SubmitResult, error) {
+		if in.Source == string(domain.SourceEfundImport) || in.Source == string(domain.SourceLoan) {
+			return nil, domain.SubmitResult{}, errors.New("该来源不能通过 MCP submit_snapshot 写入")
+		}
 		cash := in.CashCents
 		res, err := svc.Submit(ctx, domain.SubmitInput{
 			AccountID:  in.AccountID,

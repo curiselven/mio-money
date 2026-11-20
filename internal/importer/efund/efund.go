@@ -100,10 +100,14 @@ type UnmappedGroup struct {
 }
 
 type Preview struct {
-	File     string          `json:"file"`
-	Meta     Meta            `json:"meta"`
-	Groups   []GroupPreview  `json:"groups"`
-	Total    TotalPreview    `json:"total"`
-	Unmapped []UnmappedGroup `json:"unmapped"`
-	Warnings []Warning       `json:"warnings"`
+	File               string          `json:"file"`
+	Meta               Meta            `json:"meta"`
+	Groups             []GroupPreview  `json:"groups"`
+	Total              TotalPreview    `json:"total"`
+	Unmapped           []UnmappedGroup `json:"unmapped"`
+	Warnings           []Warning       `json:"warnings"`
+	FileTotalCents     int64           `json:"file_total_cents"`
+	MappedTotalCents   int64           `json:"mapped_total_cents"`
+	IgnoredTotalCents  int64           `json:"ignored_total_cents"`
+	UnmappedTotalCents int64           `json:"unmapped_total_cents"`
 }

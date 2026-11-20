@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Store) GetAccount(ctx context.Context, id string) (*domain.Account, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT id, name, platform, type, currency, owner, archived, created_at, updated_at
+	row := s.db.QueryRowContext(ctx, `SELECT id, name, platform, type, currency, owner, parent_id, archived, created_at, updated_at
 		FROM accounts WHERE id = ?`, id)
 	a, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -20,23 +20,24 @@ func (s *Store) GetAccount(ctx context.Context, id string) (*domain.Account, err
 }
 
 func (s *Store) UpsertAccount(ctx context.Context, a *domain.Account) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO accounts(id, name, platform, type, currency, owner, archived, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO accounts(id, name, platform, type, currency, owner, parent_id, archived, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			name = excluded.name,
 			platform = excluded.platform,
 			type = excluded.type,
 			currency = excluded.currency,
 			owner = excluded.owner,
+			parent_id = excluded.parent_id,
 			archived = excluded.archived,
 			updated_at = excluded.updated_at`,
-		a.ID, a.Name, a.Platform, a.Type, a.Currency, a.Owner, a.Archived,
+		a.ID, a.Name, a.Platform, a.Type, a.Currency, a.Owner, nullableText(a.ParentID), a.Archived,
 		formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
 	return err
 }
 
 func (s *Store) ListAccounts(ctx context.Context) ([]domain.Account, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, platform, type, currency, owner, archived, created_at, updated_at
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, platform, type, currency, owner, parent_id, archived, created_at, updated_at
 		FROM accounts ORDER BY created_at, id`)
 	if err != nil {
 		return nil, err
@@ -79,10 +80,30 @@ type rowScanner interface {
 func scanAccount(row rowScanner) (*domain.Account, error) {
 	var a domain.Account
 	var created, updated string
-	if err := row.Scan(&a.ID, &a.Name, &a.Platform, &a.Type, &a.Currency, &a.Owner, &a.Archived, &created, &updated); err != nil {
+	var parent sql.NullString
+	if err := row.Scan(&a.ID, &a.Name, &a.Platform, &a.Type, &a.Currency, &a.Owner, &parent, &a.Archived, &created, &updated); err != nil {
 		return nil, err
 	}
+	a.ParentID = parent.String
 	a.CreatedAt = parseTime(created)
 	a.UpdatedAt = parseTime(updated)
 	return &a, nil
+}
+
+func (s *Store) HasChildren(ctx context.Context, accountID string) (bool, error) {
+	var found int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM accounts WHERE parent_id = ? AND archived = 0 LIMIT 1`, accountID).Scan(&found)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (s *Store) HasAnySnapshot(ctx context.Context, accountID string) (bool, error) {
+	var found int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM snapshots WHERE account_id = ? LIMIT 1`, accountID).Scan(&found)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	return err == nil, err
 }

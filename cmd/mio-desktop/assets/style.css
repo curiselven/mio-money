@@ -658,6 +658,7 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
 .efund-password input,
 .efund-account-name,
+.efund-portfolio-name,
 .efund-select {
   border: 1px solid #e2d3bf;
   border-radius: 9px;
@@ -670,7 +671,9 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
 .efund-password input { width: 150px; }
 .efund-account-name { min-width: 170px; }
+.efund-portfolio-name { min-width: 150px; }
 .efund-select { max-width: 280px; }
+.efund-resolved { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--line); }
 
 .efund-hint {
   margin: 9px 0 0;
@@ -849,3 +852,41 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   .efund-account-name { width: 100%; }
   .efund-holdings { display: block; overflow-x: auto; }
 }
+
+.account-tree { display: grid; gap: 10px; }
+.account-block {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fffdf9;
+}
+.account-block-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.account-block h3 { margin: 0; font-size: 14px; }
+.account-block .meta-line { margin: 4px 0 0; color: var(--muted); font-size: 11.5px; }
+.portfolio-list { margin: 10px 0 0; padding: 0; list-style: none; }
+.portfolio-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0 7px 20px;
+  border-top: 1px dashed var(--line-soft);
+  font-size: 12px;
+}
+.efund-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.efund-form label { display: grid; gap: 4px; color: var(--muted); font-size: 11.5px; }
+.efund-form input,
+.efund-form select {
+  min-width: 120px;
+  border: 1px solid #e2d3bf;
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 12px;
+}
+.account-forms { margin-top: 12px; }
+.efund-form label.account-only { display: grid; }
+.efund-form.portfolio-mode label.account-only { display: none; }
+.account-archive.danger { color: var(--red); border-color: #ebc6bc; }
+.account-row-child td.l .account-name { padding-left: 22px; }

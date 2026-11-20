@@ -220,3 +220,30 @@ func TestOverviewLiabilityWithoutLoanHasNoBriefing(t *testing.T) {
 		t.Fatalf("liability without loan terms must have no briefing: %+v", got.Accounts)
 	}
 }
+
+func TestOverviewNestsPortfoliosUnderAccounts(t *testing.T) {
+	ctx := context.Background()
+	overview, svc := newOverview(t)
+	top, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	portfolio, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例组合", ParentID: top.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitConfirmed(t, svc, portfolio.ID, "2026-11-17", 100_000)
+
+	got, err := overview.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Accounts) != 2 {
+		t.Fatalf("accounts = %+v", got.Accounts)
+	}
+	if got.Accounts[0].AccountID != top.ID || got.Accounts[0].Depth != 0 ||
+		got.Accounts[1].AccountID != portfolio.ID || got.Accounts[1].Depth != 1 ||
+		got.Accounts[1].ParentID != top.ID {
+		t.Fatalf("accounts = %+v", got.Accounts)
+	}
+}

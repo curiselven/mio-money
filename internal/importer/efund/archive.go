@@ -16,6 +16,11 @@ import (
 
 type PasswordProvider func() (string, error)
 
+const (
+	maxZipEntries = 1000
+	maxXLSXBytes  = 20 << 20
+)
+
 // Parse reads an xlsx, or an outer zip containing exactly one xlsx.
 func Parse(file string) (*Result, error) {
 	return ParseWithPassword(file, nil)
@@ -104,6 +109,9 @@ func extractXLSX(data []byte, password PasswordProvider) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开 zip 失败: %w", err)
 	}
+	if len(zr.File) > maxZipEntries {
+		return nil, fmt.Errorf("zip 条目过多：%d（上限 %d）", len(zr.File), maxZipEntries)
+	}
 	var matches []*yzip.File
 	for _, file := range zr.File {
 		lowerName := strings.ToLower(file.Name)
@@ -140,9 +148,12 @@ func extractXLSX(data []byte, password PasswordProvider) ([]byte, error) {
 		return nil, zipReadError(err)
 	}
 	defer rc.Close()
-	out, err := io.ReadAll(rc)
+	out, err := io.ReadAll(io.LimitReader(rc, maxXLSXBytes+1))
 	if err != nil {
 		return nil, zipReadError(err)
+	}
+	if len(out) > maxXLSXBytes {
+		return nil, fmt.Errorf("zip 内 xlsx 解压后超过 %d MB", maxXLSXBytes>>20)
 	}
 	return out, nil
 }

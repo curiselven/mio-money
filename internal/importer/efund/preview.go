@@ -144,6 +144,15 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 		}
 
 		out.Groups = append(out.Groups, gp)
+		out.FileTotalCents += gp.MarketValueCents
+		switch gp.Status {
+		case "matched", "new":
+			out.MappedTotalCents += gp.MarketValueCents
+		case "ignored":
+			out.IgnoredTotalCents += gp.MarketValueCents
+		default:
+			out.UnmappedTotalCents += gp.MarketValueCents
+		}
 		out.Total.HoldingCount += len(g.holdings)
 		out.Total.MarketValueCents += gp.MarketValueCents
 		if gp.Unmapped {
