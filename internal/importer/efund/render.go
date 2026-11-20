@@ -1,0 +1,96 @@
+package efund
+
+import (
+	"fmt"
+	"io"
+
+	"github.com/curiselven/mio-money/internal/domain"
+)
+
+func Render(w io.Writer, p *Preview) {
+	fmt.Fprintf(w, "文件：%s\n", p.File)
+	if p.Meta.ShareDate != "" {
+		fmt.Fprintf(w, "份额日期：%s\n", p.Meta.ShareDate)
+	}
+	if p.Meta.PrintTime != "" {
+		fmt.Fprintf(w, "打印时间：%s\n", p.Meta.PrintTime)
+	}
+	switch {
+	case p.Meta.TotalRecords == nil:
+		fmt.Fprintf(w, "记录数：文件未给出总记录数，实际 %d 行\n", p.Meta.ActualRows)
+	case p.Meta.RecordsMatch:
+		fmt.Fprintf(w, "记录数：%d / %d ✓\n", *p.Meta.TotalRecords, p.Meta.ActualRows)
+	default:
+		fmt.Fprintf(w, "记录数：文件写 %d，实际 %d ✗\n", *p.Meta.TotalRecords, p.Meta.ActualRows)
+	}
+	if p.Meta.NAVDateMismatchFunds > 0 {
+		fmt.Fprintf(w, "净值日期不一致：%d 只（QDII 常见）\n", p.Meta.NAVDateMismatchFunds)
+	}
+
+	fmt.Fprintln(w, "\n按组合汇总（未写入任何数据）")
+	for _, g := range p.Groups {
+		fmt.Fprintf(w, "\n- %s  %s/%s\n", g.Name, g.SalesOrg, g.TradeAccount)
+		switch g.Status {
+		case "matched":
+			fmt.Fprintf(w, "  对应账户：%s（已关联）\n", g.AccountName)
+		case "new":
+			fmt.Fprintf(w, "  对应账户：新组合（目标账户「%s」尚未创建）\n", g.Target)
+		default:
+			fmt.Fprintf(w, "  对应账户：未映射\n")
+		}
+		fmt.Fprintf(w, "  基金 %d 只，市值 %s\n", g.FundCount, moneyString(g.MarketValueCents, g.Currency))
+		if g.Diff != nil {
+			fmt.Fprintf(w, "  对比最近快照 %s：\n", g.PreviousAsOf)
+			renderDiff(w, g.Diff)
+		}
+	}
+	fmt.Fprintf(w, "\n总计：%d 只基金（%d 条持仓），市值 %s\n",
+		p.Total.FundCount, p.Total.HoldingCount, moneyString(p.Total.MarketValueCents, p.Total.Currency))
+
+	if len(p.Unmapped) > 0 {
+		fmt.Fprintln(w, "\n⚠ 未映射的交易账户")
+		for _, u := range p.Unmapped {
+			fmt.Fprintf(w, "- %s / %s：%d 只，市值 %s\n",
+				u.SalesOrg, u.TradeAccount, u.FundCount, moneyString(u.MarketValueCents, u.Currency))
+		}
+	}
+	if len(p.Warnings) > 0 {
+		fmt.Fprintln(w, "\n校验告警")
+		for _, warning := range p.Warnings {
+			fmt.Fprintf(w, "- [%s] %s\n", warning.Code, warning.Message)
+		}
+	}
+}
+
+func renderDiff(w io.Writer, diff *domain.Diff) {
+	for _, item := range diff.Added {
+		fmt.Fprintf(w, "    新增：%s（%s）\n", item.Name, moneyString(item.MarketValueCents, "CNY"))
+	}
+	for _, item := range diff.Removed {
+		fmt.Fprintf(w, "    消失：%s（%s）\n", item.Name, moneyString(item.MarketValueCents, "CNY"))
+	}
+	for _, item := range diff.Cleared {
+		fmt.Fprintf(w, "    清仓：%s（%s → %s）\n", item.Name, item.OldQuantity, item.NewQuantity)
+	}
+	for _, item := range diff.QuantityChanged {
+		fmt.Fprintf(w, "    份额变化：%s %s → %s\n", item.Name, item.OldQuantity, item.NewQuantity)
+	}
+	for _, item := range diff.ValueChanged {
+		fmt.Fprintf(w, "    市值变化：%s %s → %s\n", item.Name,
+			moneyString(item.OldValueCents, "CNY"), moneyString(item.NewValueCents, "CNY"))
+	}
+	if len(diff.Added)+len(diff.Removed)+len(diff.Cleared)+len(diff.QuantityChanged)+len(diff.ValueChanged) == 0 {
+		fmt.Fprintln(w, "    无持仓变化")
+	}
+}
+
+func moneyString(cents int64, currency string) string {
+	prefix := ""
+	switch {
+	case currency == "CNY":
+		prefix = "¥"
+	case currency != "":
+		prefix = currency + " "
+	}
+	return prefix + yuanString(cents)
+}

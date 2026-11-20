@@ -1,0 +1,19 @@
+{
+  "mappings": [
+    {
+      "sales_org": "示例基金销售有限公司",
+      "trade_account": "T0000001",
+      "account": "长赢计划"
+    },
+    {
+      "sales_org": "示例基金销售有限公司",
+      "trade_account": "T0000002",
+      "account": "长赢计划2号"
+    },
+    {
+      "sales_org": "另一示例基金销售有限公司",
+      "trade_account": "T0000009",
+      "account": "示例海外组合"
+    }
+  ]
+}
