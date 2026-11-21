@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sort"
-	"strings"
 
 	"github.com/curiselven/mio-money/internal/domain"
 	"github.com/curiselven/mio-money/internal/store"
@@ -154,17 +153,6 @@ func (s *AccountService) SaveAccount(in AccountFormInput) (*domain.Account, erro
 		in.Type != domain.AccountCash && in.Type != domain.AccountStock && in.Type != domain.AccountOther {
 		return nil, errors.New("账户类型必须是 fund、mixed、cash、stock 或 other")
 	}
-	if in.ID == "" {
-		accounts, err := s.st.ListAccounts(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts {
-			if !account.Archived && account.ParentID == "" && strings.EqualFold(strings.TrimSpace(account.Name), strings.TrimSpace(in.Name)) {
-				return nil, errors.New("同名账户已存在")
-			}
-		}
-	}
 	return s.svc.UpsertAccount(context.Background(), domain.UpsertAccountInput{
 		ID: in.ID, Name: in.Name, Platform: in.Platform, Type: in.Type,
 		Currency: in.Currency, Owner: in.Owner, Archived: in.Archived,
@@ -176,16 +164,6 @@ func (s *AccountService) SavePortfolio(in PortfolioFormInput) (*domain.Account, 
 	if in.ID == "" {
 		if in.ParentID == "" {
 			return nil, errors.New("组合必须属于一个顶层账户")
-		}
-		accounts, err := s.st.ListAccounts(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, account := range accounts {
-			if !account.Archived && account.ParentID == in.ParentID &&
-				strings.EqualFold(strings.TrimSpace(account.Name), strings.TrimSpace(in.Name)) {
-				return nil, errors.New("该账户下已有同名组合")
-			}
 		}
 		return s.svc.UpsertAccount(ctx, domain.UpsertAccountInput{
 			Name: in.Name, ParentID: in.ParentID,
