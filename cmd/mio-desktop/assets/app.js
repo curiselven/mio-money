@@ -1,7 +1,7 @@
 if (window.location.protocol === "wails:" || window.location.hostname === "wails.localhost") {
   await import("/wails/runtime.js");
 }
-import { accountEditValues, accountFormVisibility, accountPortfolioView } from "./account_form.mjs";
+import { accountEditValues, accountFormVisibility, accountOwnerNote, accountPortfolioView } from "./account_form.mjs";
 import { accountRows, allocationTotals } from "./account_tree.mjs";
 import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
 
@@ -2387,13 +2387,15 @@ function renderAccountTree(tree) {
           name.append(efundNode("span", "efund-tag", "有快照"));
         }
         name.append(efundNode("span", "portfolio-meta", ` · ${typeLabels[portfolio.type] || portfolio.type} · ${portfolio.owner || "未归属"}`));
-        name.append(efundNode("span", "portfolio-snapshot num",
-          portfolio.latest_value_cents == null ? " · 最新 —" : ` · 最新 ${money(portfolio.latest_value_cents)}`));
-        name.append(efundNode("span", "portfolio-date num", ` · ${portfolio.latest_as_of || "—"}`));
+        const figures = efundNode("div", "portfolio-figures");
+        figures.append(
+          efundNode("span", "account-value num", portfolio.latest_value_cents == null ? "—" : money(portfolio.latest_value_cents)),
+          efundNode("span", "account-date num", portfolio.latest_as_of || "—"),
+        );
         const button = efundNode("button", "btn text", "编辑");
         button.type = "button";
         button.addEventListener("click", () => openAccountEditor(portfolio.id));
-        li.append(name, button);
+        li.append(name, figures, button);
         list.append(li);
       }
       block.append(list);
@@ -2437,6 +2439,9 @@ function syncAccountEdit() {
     const values = accountEditValues(item);
     accountEditSelect.value = item.id;
     accountEditForm.classList.toggle("portfolio-mode", values.isPortfolio);
+    const ownerNote = accountEditForm.querySelector(".account-owner-note");
+    ownerNote.hidden = !values.isPortfolio;
+    ownerNote.textContent = accountOwnerNote(item, accountTree?.accounts || []);
     accountEditForm.elements.name.value = values.name;
     const typeSelect = accountEditForm.elements.type;
     if (![...typeSelect.options].some((option) => option.value === values.type)) {

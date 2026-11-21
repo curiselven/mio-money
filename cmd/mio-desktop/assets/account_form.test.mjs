@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { accountEditValues, accountFormVisibility, accountPortfolioView } from "./account_form.mjs";
+import { accountEditValues, accountFormVisibility, accountOwnerNote, accountPortfolioView } from "./account_form.mjs";
 
 assert.deepEqual(accountFormVisibility(null), { create: false, portfolio: false, edit: false });
 for (const name of ["create", "portfolio", "edit"]) {
@@ -26,6 +26,15 @@ assert.throws(() => accountEditValues(null), /账户不存在/);
 
 const portfolio = accountEditValues({ name: "示例组合", type: "fund", parent_id: "acc_parent" });
 assert.equal(portfolio.isPortfolio, true);
+
+const accounts = [
+  { id: "acc_parent", owner: "林澈" },
+  { id: "acc_empty", owner: " " },
+];
+assert.equal(accountOwnerNote({ parent_id: "acc_parent" }, accounts), "归属：跟随账户（林澈）");
+assert.equal(accountOwnerNote({ parent_id: "acc_empty" }, accounts), "归属：跟随账户（未归属）");
+assert.equal(accountOwnerNote({ parent_id: "acc_missing" }, accounts), "归属：跟随账户（未归属）");
+assert.equal(accountOwnerNote({ owner: "林澈" }, accounts), "");
 
 const portfolios = [
   { id: "p1", parent_id: "acc_a" },

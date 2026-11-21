@@ -135,17 +135,32 @@
   const accountTree = {
     owners: ["林澈", "周岚"],
     accounts: [
-      { id: "acc_broker", name: "海岬证券", type: "stock", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 2, latest_value_cents: w(998861), latest_as_of: "2026-10-18" },
-      { id: "acc_fund", name: "基金E账户", type: "fund", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 1, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
+      { id: "acc_broker", name: "海岬证券", type: "stock", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 3, latest_value_cents: w(998861), latest_as_of: "2026-10-18" },
+      { id: "acc_fund", name: "基金E账户", type: "fund", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 3, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
       { id: "acc_cash", name: "日常现金", type: "cash", currency: "CNY", owner: "周岚", parent_id: "", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(42800), latest_as_of: "2026-10-18" },
       { id: "acc_archive", name: "旧日储蓄", type: "other", currency: "CNY", owner: "林澈", parent_id: "", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
+      { id: "acc_new", name: "备用账户", type: "other", currency: "CNY", owner: "", parent_id: "", archived: false, has_snapshots: false, has_children: false, child_count: 0 },
     ],
     portfolios: [
       { id: "acc_growth", name: "长期成长组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(386520.4), latest_as_of: "2026-10-18" },
       { id: "acc_dividend", name: "红利组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(612340.6), latest_as_of: "2026-10-18" },
+      { id: "acc_watch", name: "旧观察仓", type: "stock", currency: "CNY", owner: "", parent_id: "acc_broker", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
       { id: "acc_fund_core", name: "核心基金组合", type: "fund", currency: "CNY", owner: "林澈", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
+      { id: "acc_unknown", name: "待核对组合", type: "fund", currency: "CNY", owner: "", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0 },
+      { id: "acc_big", name: "大额测试组合", type: "mixed", currency: "CNY", owner: "周岚", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(12345678.9), latest_as_of: "2026-10-17" },
     ],
   };
+
+  function effectiveAccountTree() {
+    const owners = new Map(accountTree.accounts.map((account) => [account.id, account.owner]));
+    return {
+      ...accountTree,
+      portfolios: accountTree.portfolios.map((portfolio) => ({
+        ...portfolio,
+        owner: owners.get(portfolio.parent_id) || "",
+      })),
+    };
+  }
 
   const emptyDiff = {
     added: [],
@@ -572,7 +587,7 @@
           case "OverviewService.Get":
             return overview;
           case "AccountService.List":
-            return accountTree;
+            return effectiveAccountTree();
           case "PendingService.List":
             return pending;
           case "EfundService.Preview":

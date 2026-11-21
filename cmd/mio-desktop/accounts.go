@@ -43,7 +43,7 @@ type AccountFormInput struct {
 	Platform string             `json:"platform,omitempty"`
 	Type     domain.AccountType `json:"type,omitempty"`
 	Currency string             `json:"currency,omitempty"`
-	Owner    string             `json:"owner,omitempty"`
+	Owner    *string            `json:"owner,omitempty"`
 	Archived *bool              `json:"archived,omitempty"`
 }
 

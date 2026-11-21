@@ -31,6 +31,8 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 | owner | string | 否 | 我 / 家人 / 共同 |
 | archived | bool | 否 | 停用 |
 
+组合（`parent_id` 非空）的 `owner` 始终等于上级账户的 `owner`；更新组合时不单独接受 `owner`，`list_accounts` 返回有效归属。
+
 ### snapshot（持仓快照）
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|

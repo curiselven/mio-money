@@ -63,6 +63,8 @@
   --space-5-5: 24px;
   --space-6: 28px;
   --space-7: 36px;
+  --account-snapshot-col: 156px;
+  --account-action-col: 120px;
   --radius-sm: 8px;
   --radius-md: 10px;
   --radius-lg: 12px;
@@ -973,7 +975,11 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   border-radius: var(--radius-lg);
   background: var(--surface-soft);
 }
-.account-block-head { display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.account-block-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--account-snapshot-col) var(--account-action-col);
+  gap: var(--space-3);
+}
 .account-block h3 { margin: 0; font-size: var(--text-lg); }
 .account-block .meta-line { margin: var(--space-1) 0 0; color: var(--muted); font-size: var(--text-xs); }
 .portfolio-list { margin: var(--space-3) 0 0; padding: 0; list-style: none; }
@@ -1569,7 +1575,13 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   display: grid;
   justify-items: end;
   gap: var(--space-0-5);
-  margin-left: auto;
+  text-align: right;
+}
+
+.portfolio-figures {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-0-5);
   text-align: right;
 }
 
@@ -1581,9 +1593,10 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
 .portfolio-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) var(--account-snapshot-col) var(--account-action-col);
   align-items: center;
-  padding: var(--space-2-5) 0 var(--space-2-5) var(--space-5);
+  gap: var(--space-3);
+  padding: var(--space-2-5) 0;
 }
 
 .portfolio-list li > span:first-child {
@@ -1591,11 +1604,10 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-0-5);
+  padding-left: var(--space-5);
 }
 
 .portfolio-meta { color: var(--muted); }
-.portfolio-snapshot { color: var(--ink-warm); }
-.portfolio-date { color: var(--faint); font-size: var(--text-xs); }
 
 .portfolio-list li > .btn { justify-self: end; }
 
@@ -1621,6 +1633,12 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 .account-form label.account-only { display: grid; }
 .account-form.portfolio-mode label.account-only { display: none; }
 .account-form .field-wide { grid-column: span 2; }
+.account-owner-note {
+  margin: 0;
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
 
 .account-form input,
 .account-form select {
@@ -1763,7 +1781,13 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
 @media (max-width: 920px) {
   .page-head { align-items: flex-start; }
-  .account-figures { justify-items: start; margin-left: 0; text-align: left; }
+  .account-block-head,
+  .portfolio-list li { grid-template-columns: minmax(0, 1fr); }
+  .account-figures,
+  .portfolio-figures { justify-items: start; text-align: left; }
+  .account-block .efund-actions,
+  .portfolio-list li > .btn { justify-self: start; }
+  .portfolio-list li > span:first-child { padding-left: 0; }
   .import-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #efund-view .efund-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #efund-view .meta-item:nth-child(4n) { border-right: 1px solid var(--line-soft); }

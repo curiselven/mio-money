@@ -22,6 +22,13 @@ export function accountEditValues(item) {
   };
 }
 
+export function accountOwnerNote(item, accounts = []) {
+  if (!item?.parent_id) return "";
+  const parent = accounts.find((account) => account.id === item.parent_id);
+  const owner = parent?.owner?.trim();
+  return `归属：跟随账户（${owner || "未归属"}）`;
+}
+
 export function accountPortfolioView(account, portfolios) {
   const items = portfolios.filter((portfolio) => portfolio.parent_id === account.id);
   const count = account.child_count ?? items.length;

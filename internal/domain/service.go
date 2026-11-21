@@ -274,7 +274,7 @@ type UpsertAccountInput struct {
 	Platform string      `json:"platform,omitempty"`
 	Type     AccountType `json:"type,omitempty"`
 	Currency string      `json:"currency,omitempty"`
-	Owner    string      `json:"owner,omitempty"`
+	Owner    *string     `json:"owner,omitempty"`
 	ParentID string      `json:"parent_id,omitempty"`
 	Archived *bool       `json:"archived,omitempty"`
 }
@@ -312,9 +312,8 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 			if in.Currency == "" {
 				in.Currency = parent.Currency
 			}
-			if in.Owner == "" {
-				in.Owner = parent.Owner
-			}
+			owner := parent.Owner
+			in.Owner = &owner
 			if in.Platform == "" {
 				in.Platform = parent.Platform
 			}
@@ -326,13 +325,17 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		if currency == "" {
 			currency = "CNY"
 		}
+		owner := ""
+		if in.Owner != nil {
+			owner = *in.Owner
+		}
 		account := &Account{
 			ID:        newID("acc"),
 			Name:      in.Name,
 			Platform:  in.Platform,
 			Type:      in.Type,
 			Currency:  currency,
-			Owner:     in.Owner,
+			Owner:     owner,
 			ParentID:  in.ParentID,
 			CreatedAt: now,
 			UpdatedAt: now,
@@ -365,8 +368,9 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 	if in.Currency != "" {
 		account.Currency = strings.ToUpper(in.Currency)
 	}
-	if in.Owner != "" {
-		account.Owner = in.Owner
+	ownerChanged := in.Owner != nil && account.ParentID == ""
+	if ownerChanged {
+		account.Owner = *in.Owner
 	}
 	if in.ParentID != "" && in.ParentID != account.ParentID {
 		return nil, errors.New("不支持修改上级账户")
@@ -393,6 +397,22 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 	account.UpdatedAt = now
 	if err := s.repo.UpsertAccount(ctx, account); err != nil {
 		return nil, err
+	}
+	if ownerChanged {
+		accounts, err := s.repo.ListAccounts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for i := range accounts {
+			if accounts[i].ParentID != account.ID {
+				continue
+			}
+			accounts[i].Owner = account.Owner
+			accounts[i].UpdatedAt = now
+			if err := s.repo.UpsertAccount(ctx, &accounts[i]); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return account, nil
 }

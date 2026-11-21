@@ -11,6 +11,8 @@ import (
 
 func boolp(value bool) *bool { return &value }
 
+func ownerp(value string) *string { return &value }
+
 func TestAccountServiceTreeRenameAndArchive(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "mio.db"))
 	if err != nil {
@@ -22,7 +24,7 @@ func TestAccountServiceTreeRenameAndArchive(t *testing.T) {
 
 	top, err := accounts.SaveAccount(AccountFormInput{
 		Name: "示例账户", Platform: "示例平台", Type: domain.AccountFund,
-		Currency: "CNY", Owner: "我",
+		Currency: "CNY", Owner: ownerp("我"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +57,10 @@ func TestAccountServiceTreeRenameAndArchive(t *testing.T) {
 	if tree.Accounts[0].Platform != "示例平台" {
 		t.Fatalf("rename cleared platform: %+v", tree.Accounts[0])
 	}
+	storedPortfolio, err := st.GetAccount(context.Background(), portfolio.ID)
+	if err != nil || tree.Accounts[0].Owner != "我" || storedPortfolio.Owner != "我" {
+		t.Fatalf("rename cleared owner: tree=%+v portfolio=%+v err=%v", tree.Accounts[0], storedPortfolio, err)
+	}
 
 	empty, err := accounts.SaveAccount(AccountFormInput{Name: "空账户", Type: domain.AccountCash})
 	if err != nil {
@@ -85,6 +91,106 @@ func TestAccountServiceTreeRenameAndArchive(t *testing.T) {
 	}
 }
 
+func TestPortfolioOwnerFollowsParent(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "mio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := domain.NewService(st, 0.2)
+	accounts := NewAccountService(svc, st)
+
+	top, err := accounts.SaveAccount(AccountFormInput{Name: "示例账户", Type: domain.AccountFund, Owner: ownerp("林澈")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	portfolio, err := accounts.SavePortfolio(PortfolioFormInput{ParentID: top.ID, Name: "示例组合"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
+		Name: "示例组合二", ParentID: top.ID, Owner: ownerp("别人"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if portfolio.Owner != "林澈" || explicit.Owner != "林澈" {
+		t.Fatalf("portfolio create owner = %q / %q", portfolio.Owner, explicit.Owner)
+	}
+
+	stored, err := st.GetAccount(ctx, portfolio.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Owner = ""
+	if err := st.UpsertAccount(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	summaries, err := svc.ListAccounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range summaries {
+		if account.ID == portfolio.ID && account.Owner != "林澈" {
+			t.Fatalf("read effective owner = %q", account.Owner)
+		}
+	}
+	tree, err := accounts.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range tree.Portfolios {
+		if item.Owner != "林澈" {
+			t.Fatalf("tree portfolio owner = %+v", item)
+		}
+	}
+
+	if _, err := accounts.SaveAccount(AccountFormInput{ID: top.ID, Name: "改名账户"}); err != nil {
+		t.Fatal(err)
+	}
+	storedTop, err := st.GetAccount(ctx, top.ID)
+	if err != nil || storedTop.Name != "改名账户" || storedTop.Owner != "林澈" {
+		t.Fatalf("rename top = %+v, err=%v", storedTop, err)
+	}
+
+	if _, err := accounts.SaveAccount(AccountFormInput{ID: top.ID, Owner: ownerp("周岚")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range mustListAccounts(t, st) {
+		if account.ParentID == top.ID && account.Owner != "周岚" {
+			t.Fatalf("cascade owner = %+v", account)
+		}
+	}
+
+	if _, err := accounts.SaveAccount(AccountFormInput{ID: top.ID, Owner: ownerp("")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range mustListAccounts(t, st) {
+		if account.ParentID == top.ID && account.Owner != "" {
+			t.Fatalf("clear owner = %+v", account)
+		}
+	}
+	tree, err = accounts.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range tree.Portfolios {
+		if item.Owner != "" {
+			t.Fatalf("tree cleared owner = %+v", item)
+		}
+	}
+}
+
+func mustListAccounts(t *testing.T, st *store.Store) []domain.Account {
+	t.Helper()
+	accounts, err := st.ListAccounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return accounts
+}
+
 func TestAccountServiceEditsAllManagedTypes(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "mio.db"))
 	if err != nil {
@@ -97,7 +203,7 @@ func TestAccountServiceEditsAllManagedTypes(t *testing.T) {
 		domain.AccountFund, domain.AccountMixed, domain.AccountCash, domain.AccountStock, domain.AccountOther,
 	} {
 		account, err := accounts.SaveAccount(AccountFormInput{
-			Name: "示例" + string(accountType), Type: accountType, Currency: "CNY", Owner: "我",
+			Name: "示例" + string(accountType), Type: accountType, Currency: "CNY", Owner: ownerp("我"),
 		})
 		if err != nil {
 			t.Fatalf("%s create: %v", accountType, err)
@@ -133,7 +239,7 @@ func TestAccountServiceListSummarizesLatestSnapshots(t *testing.T) {
 	svc := domain.NewService(st, 0.2)
 	accounts := NewAccountService(svc, st)
 
-	top, err := accounts.SaveAccount(AccountFormInput{Name: "示例账户", Type: domain.AccountFund, Owner: "我"})
+	top, err := accounts.SaveAccount(AccountFormInput{Name: "示例账户", Type: domain.AccountFund, Owner: ownerp("我")})
 	if err != nil {
 		t.Fatal(err)
 	}
