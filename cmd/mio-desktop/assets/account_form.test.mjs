@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { accountEditValues, accountFormVisibility } from "./account_form.mjs";
+import { accountEditValues, accountFormVisibility, accountPortfolioView } from "./account_form.mjs";
 
 assert.deepEqual(accountFormVisibility(null), { create: false, portfolio: false, edit: false });
 for (const name of ["create", "portfolio", "edit"]) {
@@ -26,5 +26,27 @@ assert.throws(() => accountEditValues(null), /账户不存在/);
 
 const portfolio = accountEditValues({ name: "示例组合", type: "fund", parent_id: "acc_parent" });
 assert.equal(portfolio.isPortfolio, true);
+
+const portfolios = [
+  { id: "p1", parent_id: "acc_a" },
+  { id: "p2", parent_id: "acc_a" },
+  { id: "p3", parent_id: "acc_b" },
+];
+
+assert.deepEqual(accountPortfolioView({ id: "acc_cash", child_count: 0 }, portfolios), {
+  items: [],
+  count: 0,
+  showCount: false,
+});
+assert.deepEqual(accountPortfolioView({ id: "acc_a", child_count: 2 }, portfolios), {
+  items: portfolios.slice(0, 2),
+  count: 2,
+  showCount: true,
+});
+assert.deepEqual(accountPortfolioView({ id: "acc_b" }, portfolios), {
+  items: [portfolios[2]],
+  count: 1,
+  showCount: true,
+});
 
 console.log("account_form: ok");

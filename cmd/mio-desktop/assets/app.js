@@ -1,7 +1,7 @@
 if (window.location.protocol === "wails:" || window.location.hostname === "wails.localhost") {
   await import("/wails/runtime.js");
 }
-import { accountEditValues, accountFormVisibility } from "./account_form.mjs";
+import { accountEditValues, accountFormVisibility, accountPortfolioView } from "./account_form.mjs";
 import { accountRows, allocationTotals } from "./account_tree.mjs";
 import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
 
@@ -2353,9 +2353,10 @@ function renderAccountTree(tree) {
     const title = efundNode("h3", "", top.name);
     if (top.archived) title.append(efundNode("span", "efund-tag muted-tag", "已归档"));
     left.append(title);
-    const portfolioCount = top.child_count ?? tree.portfolios.filter((p) => p.parent_id === top.id).length;
-    left.append(efundNode("p", "meta-line",
-      `${typeLabels[top.type] || top.type} · ${top.owner || "未归属"} · ${portfolioCount} 个组合`));
+    const portfolios = accountPortfolioView(top, tree.portfolios);
+    const meta = [typeLabels[top.type] || top.type, top.owner || "未归属"];
+    if (portfolios.showCount) meta.push(`${portfolios.count} 个组合`);
+    left.append(efundNode("p", "meta-line", meta.join(" · ")));
     head.append(left);
     const figures = efundNode("div", "account-figures");
     figures.append(
@@ -2376,28 +2377,27 @@ function renderAccountTree(tree) {
     head.append(actions);
     block.append(head);
 
-    const list = efundNode("ul", "portfolio-list");
-    for (const portfolio of tree.portfolios.filter((p) => p.parent_id === top.id)) {
-      const li = efundNode("li");
-      const name = efundNode("span", "", portfolio.name);
-      if (portfolio.archived) name.append(efundNode("span", "efund-tag muted-tag", "已归档"));
-      if (portfolio.has_snapshots && portfolio.latest_value_cents == null) {
-        name.append(efundNode("span", "efund-tag", "有快照"));
+    if (portfolios.items.length) {
+      const list = efundNode("ul", "portfolio-list");
+      for (const portfolio of portfolios.items) {
+        const li = efundNode("li");
+        const name = efundNode("span", "", portfolio.name);
+        if (portfolio.archived) name.append(efundNode("span", "efund-tag muted-tag", "已归档"));
+        if (portfolio.has_snapshots && portfolio.latest_value_cents == null) {
+          name.append(efundNode("span", "efund-tag", "有快照"));
+        }
+        name.append(efundNode("span", "portfolio-meta", ` · ${typeLabels[portfolio.type] || portfolio.type} · ${portfolio.owner || "未归属"}`));
+        name.append(efundNode("span", "portfolio-snapshot num",
+          portfolio.latest_value_cents == null ? " · 最新 —" : ` · 最新 ${money(portfolio.latest_value_cents)}`));
+        name.append(efundNode("span", "portfolio-date num", ` · ${portfolio.latest_as_of || "—"}`));
+        const button = efundNode("button", "btn text", "编辑");
+        button.type = "button";
+        button.addEventListener("click", () => openAccountEditor(portfolio.id));
+        li.append(name, button);
+        list.append(li);
       }
-      name.append(efundNode("span", "portfolio-meta", ` · ${typeLabels[portfolio.type] || portfolio.type} · ${portfolio.owner || "未归属"}`));
-      name.append(efundNode("span", "portfolio-snapshot num",
-        portfolio.latest_value_cents == null ? " · 最新 —" : ` · 最新 ${money(portfolio.latest_value_cents)}`));
-      name.append(efundNode("span", "portfolio-date num", ` · ${portfolio.latest_as_of || "—"}`));
-      const button = efundNode("button", "btn text", "编辑");
-      button.type = "button";
-      button.addEventListener("click", () => openAccountEditor(portfolio.id));
-      li.append(name, button);
-      list.append(li);
+      block.append(list);
     }
-    if (!list.children.length) {
-      list.append(efundNode("li", "muted", "没有组合；可以直接把持仓记在这个账户上"));
-    }
-    block.append(list);
     accountsTree.append(block);
   }
 }

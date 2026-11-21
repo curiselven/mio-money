@@ -21,3 +21,9 @@ export function accountEditValues(item) {
     isPortfolio: Boolean(item.parent_id),
   };
 }
+
+export function accountPortfolioView(account, portfolios) {
+  const items = portfolios.filter((portfolio) => portfolio.parent_id === account.id);
+  const count = account.child_count ?? items.length;
+  return { items, count, showCount: count > 0 };
+}
