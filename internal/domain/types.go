@@ -28,6 +28,7 @@ type Account struct {
 	Type      AccountType `json:"type"`
 	Currency  string      `json:"currency"`
 	Owner     string      `json:"owner,omitempty"`
+	ParentID  string      `json:"parent_id,omitempty"`
 	Archived  bool        `json:"archived"`
 	CreatedAt time.Time   `json:"created_at"`
 	UpdatedAt time.Time   `json:"updated_at"`
@@ -45,16 +46,17 @@ const (
 type Source string
 
 const (
-	SourceScreenshot Source = "screenshot"
-	SourceMCP        Source = "mcp"
-	SourceStatement  Source = "statement"
-	SourceManual     Source = "manual"
-	SourceLoan       Source = "loan_schedule"
+	SourceScreenshot  Source = "screenshot"
+	SourceMCP         Source = "mcp"
+	SourceStatement   Source = "statement"
+	SourceManual      Source = "manual"
+	SourceLoan        Source = "loan_schedule"
+	SourceEfundImport Source = "efund_import"
 )
 
 func (s Source) Valid() bool {
 	switch s {
-	case SourceScreenshot, SourceMCP, SourceStatement, SourceManual, SourceLoan:
+	case SourceScreenshot, SourceMCP, SourceStatement, SourceManual, SourceLoan, SourceEfundImport:
 		return true
 	}
 	return false

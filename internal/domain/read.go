@@ -15,6 +15,16 @@ func (s *Service) ListAccounts(ctx context.Context) ([]AccountSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	byID := make(map[string]Account, len(accounts))
+	for _, account := range accounts {
+		byID[account.ID] = account
+	}
+	for i := range accounts {
+		if accounts[i].ParentID == "" {
+			continue
+		}
+		accounts[i].Owner = byID[accounts[i].ParentID].Owner
+	}
 	dates, err := s.repo.LastConfirmedDates(ctx)
 	if err != nil {
 		return nil, err
@@ -127,6 +137,9 @@ func (s *Service) netWorthAt(ctx context.Context, asOf string) (*NetWorth, error
 	typeTotals := map[AccountType]*TypeTotal{}
 	for _, sn := range snaps {
 		a := byID[sn.AccountID]
+		if a.Archived {
+			continue
+		}
 		value := sn.TotalCents()
 		out.ByAccount = append(out.ByAccount, AccountValue{
 			AccountID: a.ID, Name: a.Name, Type: a.Type, ValueCents: value,

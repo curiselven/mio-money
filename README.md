@@ -50,6 +50,7 @@
 - **写入有刹车**：Agent 先 `submit_snapshot` 拿到差异预览，再 `confirm_snapshot` 才生效；总额突变、持仓整条消失、负数、币种不一致会被拦截，并在桌面端「待确认」里等人放行。
 - **房贷逐期重算**：既可以从某个锚点开始算，也可以从第 1 期完整重放；支持 30 天拆分计息、调整当期的三种本金算法和提前还款。`--loan-sync` 会按已过扣款日自动补写负债快照。
 - **和银行对账**：抄几期银行 App 的月供、本金、利息，`reconcile_loan_history` 会反推利率调整的生效日和当期本金算法；对账只读，确认后再写入。
+- **基金E账户导入**：桌面端直接读取 xlsx / 加密 zip，按「账户 → 组合」映射，预览差异后走现有快照确认流程；导入可按目标逐组执行，也可按快照精确撤销。详见 [`docs/efund-import.md`](docs/efund-import.md)。
 - **一眼看懂**：桌面端提供净资产、资产/负债、历史曲线、资产构成，以及每笔贷款还剩多少期、下期月供和已还合计。
 
 ## 快速上手
@@ -60,12 +61,19 @@
 git clone https://github.com/curiselven/mio-money.git
 cd mio-money
 
-# 构建
+# macOS 安装包（构建 Mio.app、CLI，备份数据库，归档旧应用）
+./scripts/install-mac.sh --dry-run   # 只看步骤
+./scripts/install-mac.sh             # 安装到 /Applications
+
+# 或者手动构建
 go build -o bin/mio ./cmd/mio
 go build -o bin/mio-desktop ./cmd/mio-desktop
 
 # 桌面端（用临时库演示，不会碰默认数据库）
 ./bin/mio-desktop --db /tmp/mio-demo.db
+
+# 用虚构数据在浏览器预览桌面端并截图（不启动 Mio、不读数据库；需要 Chrome/Chromium）
+./scripts/ui-preview/shoot.sh
 
 # 补写已过扣款日的贷款负债快照，打印 JSON 摘要后退出
 ./bin/mio --db /tmp/mio-demo.db --loan-sync
@@ -73,6 +81,8 @@ go build -o bin/mio-desktop ./cmd/mio-desktop
 # 看一次完整的 MCP stdio 往返（临时目录 + 假数据，结束后清理）
 go run ./examples/stdio-demo
 ```
+
+`scripts/install-mac.sh` 会构建 `Mio.app` 和 CLI，以 0600 备份数据库（含 wal/shm）、归档旧应用并 ad-hoc 签名；`--dry-run` 只打印步骤。参数见 [`scripts/install-mac.sh`](scripts/install-mac.sh)。UI 预览默认截 `home`/`import`/`import-done`/`accounts`/`pending` 五页，手动预览见 [`scripts/ui-preview/README.md`](scripts/ui-preview/README.md)。
 
 默认数据库位于 macOS 的 `~/Library/Application Support/MioMoney/mio.db`（Linux 为 `~/.config/MioMoney/mio.db`），用 `--db` 可以指向其他文件。`mio` 默认以 stdio 模式运行，通常由 MCP 客户端启动；直接在终端运行会等待 stdin 输入。
 
@@ -89,6 +99,12 @@ go run ./examples/stdio-demo
 | `--loan-sync` | `false` | 同步贷款快照、输出 JSON 摘要并退出 |
 
 桌面端另外支持 `--db` 和 `--max-change`，默认与 MCP 使用同一个数据库。
+
+### 桌面端页面
+
+桌面端有总览、待确认、导入 · 基金E账户、账户管理和贷款页。账户最多两级：组合挂在账户下，快照可以记在账户或组合上；组合继承上级账户的类型、币种和归属，归属只在账户上修改。账户管理页支持新建/改名账户与组合、归档空对象；新建账户、新建组合和编辑三个表单默认收起，没有组合的账户不显示空组合提示。首页账户明细默认折叠，占比按账户树合计显示「占总资产」。导入完成态按已生效 / 待确认 / 已忽略 / 跳过汇总，可撤销本次快照或跳到待确认页。
+
+界面 token 与组件规范见 [`docs/design-system.md`](docs/design-system.md)；导入步骤、映射格式、待确认和撤销规则见 [`docs/efund-import.md`](docs/efund-import.md)。
 
 ## MCP 接入
 

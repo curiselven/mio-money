@@ -39,9 +39,17 @@ func main() {
 	pending := NewPendingService(svc)
 	overview := NewOverviewService(svc)
 	loans := NewLoanService(svc)
+	efundImport := NewEfundService(svc, st, *dbPath)
+	accounts := NewAccountService(svc, st)
 	app := application.New(application.Options{
-		Name:     "Mio",
-		Services: []application.Service{application.NewService(pending), application.NewService(overview), application.NewService(loans)},
+		Name: "Mio",
+		Services: []application.Service{
+			application.NewService(pending),
+			application.NewService(overview),
+			application.NewService(loans),
+			application.NewService(efundImport),
+			application.NewService(accounts),
+		},
 		Assets: application.AssetOptions{
 			Handler:        application.AssetFileServerFS(assets),
 			DisableLogging: true,

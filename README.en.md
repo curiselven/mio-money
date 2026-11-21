@@ -50,6 +50,7 @@
 - **Writes with brakes**: an agent first calls `submit_snapshot` for a diff preview, then `confirm_snapshot` to make it live. Large total changes, disappearing positions, negative values and currency mismatches are blocked and wait for a human in the desktop "pending" view.
 - **Loan replay**: model a loan from an anchor date or replay it from period 1. It supports 30-day split interest, three principal rules for rate-change periods, and prepayments. `--loan-sync` writes liability snapshots for elapsed payment dates.
 - **Bank reconciliation**: copy a few monthly payment, principal and interest figures from the bank app; `reconcile_loan_history` infers the rate-change date and principal rule. Reconciliation is read-only; write only after you confirm.
+- **Fund E-account import**: read xlsx or encrypted zip files in the desktop app, map trade accounts to accounts/portfolios, review diffs, and write through the existing snapshot confirmation flow. Targets can be imported one by one; confirmed imports can be undone by snapshot. See [`docs/efund-import.md`](docs/efund-import.md).
 - **One clear overview**: net worth, assets and liabilities, history chart, asset allocation, and per-loan remaining periods, next payment and paid totals in the desktop app.
 
 ## Quick start
@@ -60,12 +61,19 @@ You need Go 1.26+. The desktop app is built with Wails v3 and currently targets 
 git clone https://github.com/curiselven/mio-money.git
 cd mio-money
 
-# Build
+# macOS installer (builds Mio.app and the CLI, backs up the database, archives the old app)
+./scripts/install-mac.sh --dry-run
+./scripts/install-mac.sh
+
+# Or build manually
 go build -o bin/mio ./cmd/mio
 go build -o bin/mio-desktop ./cmd/mio-desktop
 
 # Desktop app (temporary demo database; the default database is untouched)
 ./bin/mio-desktop --db /tmp/mio-demo.db
+
+# Preview the desktop app with fake data in a browser and take screenshots (no app, no database; needs Chrome/Chromium)
+./scripts/ui-preview/shoot.sh
 
 # Write liability snapshots for elapsed payment dates, print a JSON summary and exit
 ./bin/mio --db /tmp/mio-demo.db --loan-sync
@@ -73,6 +81,8 @@ go build -o bin/mio-desktop ./cmd/mio-desktop
 # Watch one complete MCP stdio round trip (temporary directory and fake data)
 go run ./examples/stdio-demo
 ```
+
+`scripts/install-mac.sh` builds `Mio.app` and the CLI, backs up the database (including wal/shm) with mode 0600, archives the previous app and ad-hoc signs the bundle. `--dry-run` prints the steps only; see [`scripts/install-mac.sh`](scripts/install-mac.sh). The UI preview captures `home`, `import`, `import-done`, `accounts` and `pending`; see [`scripts/ui-preview/README.md`](scripts/ui-preview/README.md) for manual preview.
 
 The default database is `~/Library/Application Support/MioMoney/mio.db` on macOS (`~/.config/MioMoney/mio.db` on Linux). Pass `--db` to use another file. `mio` runs over stdio by default and is normally started by an MCP client; running it directly waits for stdin.
 
@@ -89,6 +99,12 @@ The default database is `~/Library/Application Support/MioMoney/mio.db` on macOS
 | `--loan-sync` | `false` | Sync loan snapshots, print a JSON summary and exit |
 
 The desktop app also accepts `--db` and `--max-change`, and uses the same database as MCP by default.
+
+### Desktop pages
+
+The desktop app has Overview, Pending, Import · Fund E-account, Accounts and Loan pages. Accounts are at most two levels deep: portfolios sit under an account, and snapshots can be written to either. A portfolio inherits its parent's type, currency and owner; change the owner on the account only. The Accounts page creates/renames accounts and portfolios and archives empty ones. The new-account, new-portfolio and edit forms start collapsed, and an account with no portfolios shows no empty-portfolio copy. Home-page account details start collapsed, and each account tree shows its share of total assets as "占总资产" (share of total assets). The import done state summarizes applied, pending, ignored and skipped groups, with undo for this import and a shortcut to Pending.
+
+See [`docs/design-system.md`](docs/design-system.md) for tokens and components, and [`docs/efund-import.md`](docs/efund-import.md) for import steps, mapping, pending review and undo.
 
 ## MCP
 

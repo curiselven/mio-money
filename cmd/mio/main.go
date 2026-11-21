@@ -22,6 +22,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "import" {
+		if err := runImport(os.Args[2:], os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	dbPath := flag.String("db", store.DefaultPath(), "SQLite database path")
 	maxChange := flag.Float64("max-change", 20, "reject confirm when an account total moves more than this percentage")
 	httpMode := flag.Bool("http", false, "serve MCP over Streamable HTTP instead of stdio")
