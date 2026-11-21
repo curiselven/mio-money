@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/curiselven/mio-money/internal/domain"
 )
@@ -30,14 +29,6 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 			return nil, err
 		}
 	}
-	byID := map[string]domain.Account{}
-	byName := map[string][]domain.Account{}
-	for _, account := range accounts {
-		byID[account.ID] = account
-		key := strings.ToLower(strings.TrimSpace(account.Name))
-		byName[key] = append(byName[key], account)
-	}
-
 	targets := map[string]MappingEntry{}
 	if mapping != nil {
 		for _, entry := range mapping.Mappings {
@@ -53,7 +44,6 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 		Unmapped: []UnmappedGroup{},
 		Warnings: append([]Warning{}, parsed.Warnings...),
 	}
-	ambiguous := map[string]bool{}
 	allCodes := map[string]bool{}
 	allCurrencies := map[string]bool{}
 
@@ -71,42 +61,25 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 			gp.Name = g.salesOrg + "·" + g.tradeAccount + "·已忽略"
 			gp.Ignored = true
 			gp.Status = "ignored"
-		case target.AccountID != "":
-			if account, ok := byID[target.AccountID]; ok {
-				gp.Name = account.Name
-				gp.Target = account.Name
-				gp.AccountID = account.ID
-				gp.AccountName = account.Name
-				gp.Status = "matched"
-			} else {
-				gp.Name = displayTarget(target)
-				gp.Target = gp.Name
-				gp.NewAccount = true
-				gp.Status = "new"
+		case target.AccountID != "" || target.Account != "":
+			resolved := ResolveTarget(target, accounts)
+			if resolved.Issue != "" {
+				gp.Name = displayTarget(target) + "·映射无效"
+				gp.Target = displayTarget(target)
+				gp.Status = "invalid"
+				gp.Unmapped = true
 				out.Warnings = append(out.Warnings, Warning{
-					Code:     "account_id_not_found",
+					Code:     "mapping_target_invalid",
 					Severity: SeverityWarning,
-					Message:  fmt.Sprintf("映射账户 ID「%s」在库中不存在，按新组合处理（不回退到名称匹配）", target.AccountID),
+					Message:  g.salesOrg + " / " + g.tradeAccount + "：" + resolved.Issue,
 				})
+				break
 			}
-		case target.Account != "":
-			matches := byName[strings.ToLower(target.Account)]
-			if len(matches) == 1 {
-				account := matches[0]
-				gp.Name = account.Name
-				gp.Target = account.Name
-				gp.AccountID = account.ID
-				gp.AccountName = account.Name
-				gp.Status = "matched"
-			} else {
-				gp.Name = target.Account
-				gp.Target = target.Account
-				gp.NewAccount = true
-				gp.Status = "new"
-				if len(matches) > 1 {
-					ambiguous[target.Account] = true
-				}
-			}
+			gp.Name = resolved.Leaf.Name
+			gp.Target = resolved.Leaf.Name
+			gp.AccountID = resolved.Leaf.ID
+			gp.AccountName = resolved.Leaf.Name
+			gp.Status = "matched"
 		default:
 			gp.Name = g.salesOrg + "·" + g.tradeAccount + "·未分组"
 			gp.Unmapped = true
@@ -171,13 +144,6 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 		for currency := range allCurrencies {
 			out.Total.Currency = currency
 		}
-	}
-	for target := range ambiguous {
-		out.Warnings = append(out.Warnings, Warning{
-			Code:     "account_name_ambiguous",
-			Severity: SeverityWarning,
-			Message:  fmt.Sprintf("库中有多个同名账户「%s」，未自动关联", target),
-		})
 	}
 	sort.Slice(out.Warnings, func(i, j int) bool {
 		if out.Warnings[i].Row != out.Warnings[j].Row {

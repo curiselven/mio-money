@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -158,15 +159,15 @@ func findHeader(rows []sheetRow) (int, map[string]int, error) {
 	return 0, nil, errors.New("未找到表头（需要「序号」「基金代码」列）")
 }
 
-func headerMap(cells []string) map[string]int {
+func headerMap(cells map[int]string) map[string]int {
 	out := make(map[string]int, len(cells))
-	for i, value := range cells {
+	for column, value := range cells {
 		name := normalizeHeader(value)
 		if name == "" {
 			continue
 		}
-		if _, exists := out[name]; !exists {
-			out[name] = i
+		if previous, exists := out[name]; !exists || column < previous {
+			out[name] = column
 		}
 	}
 	return out
@@ -181,7 +182,7 @@ func normalizeHeader(value string) string {
 	}, value)
 }
 
-func parseHolding(rowNumber int, cells []string, headers map[string]int, assetCol int) (Holding, error) {
+func parseHolding(rowNumber int, cells map[int]string, headers map[string]int, assetCol int) (Holding, error) {
 	h := Holding{
 		FundCode:       strings.TrimSpace(cellAt(cells, headers["基金代码"])),
 		FundName:       strings.TrimSpace(cellAt(cells, headers["基金名称"])),
@@ -226,7 +227,13 @@ func readFooter(rows []sheetRow) (int, string) {
 	total := -1
 	printTime := ""
 	for _, row := range rows {
-		for _, cell := range row.cells {
+		columns := make([]int, 0, len(row.cells))
+		for column := range row.cells {
+			columns = append(columns, column)
+		}
+		sort.Ints(columns)
+		for _, column := range columns {
+			cell := row.cells[column]
 			if total < 0 {
 				if m := totalPattern.FindStringSubmatch(cell); m != nil {
 					if n, err := strconv.Atoi(m[1]); err == nil {
@@ -244,8 +251,8 @@ func readFooter(rows []sheetRow) (int, string) {
 	return total, printTime
 }
 
-func cellAt(cells []string, index int) string {
-	if index < 0 || index >= len(cells) {
+func cellAt(cells map[int]string, index int) string {
+	if index < 0 {
 		return ""
 	}
 	return cells[index]

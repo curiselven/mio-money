@@ -3,7 +3,7 @@ if (window.location.protocol === "wails:" || window.location.hostname === "wails
 }
 import { accountEditValues, accountFormVisibility, accountOwnerNote, accountPortfolioView } from "./account_form.mjs";
 import { accountRows, allocationTotals } from "./account_tree.mjs";
-import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
+import { groupState, importSummary, mergeResults, portfolioChoices, priorImportUndo, targetState } from "./efund_flow.mjs";
 
 const overviewView = document.getElementById("overview-view");
 const pendingView = document.getElementById("pending-view");
@@ -58,6 +58,7 @@ const ownerOptions = document.getElementById("owner-options");
 const sourceLabels = { mcp: "Agent 提交", screenshot: "截图", statement: "对账单", manual: "手动", efund_import: "基金E账户" };
 const typeLabels = { cash: "现金", fund: "基金", stock: "股票", mixed: "混合", liability: "负债", other: "其他" };
 const typeColors = { stock: "#E07A5F", fund: "#6E8B5B", cash: "#D4A64A", mixed: "#C98A2B", other: "#8D7B66" };
+const efundMaxFileBytes = 32 * 1024 * 1024; // Keep in sync with efund.MaxInputBytes.
 const principalRuleLabels = { new_schedule: "新月供本金", fixed_payment: "月供不变", old_schedule: "旧月供本金" };
 const warningSeverityLabels = { info: "提示", warning: "注意", blocks_write: "将阻止写入" };
 const moneyFormat = new Intl.NumberFormat("zh-CN", {
@@ -1448,6 +1449,10 @@ function resetEfundSession() {
 async function parseEfundFile() {
   if (!efundFile) return;
   const file = efundFile;
+  if (file.size > efundMaxFileBytes) {
+    showStatus("文件过大：超过 32 MB 上限", "error");
+    return;
+  }
   efundParse.disabled = true;
   efundPreview = null;
   efundImportResult = null;
@@ -1623,7 +1628,8 @@ function renderEfundGroup(group, preview) {
   portfolioName.type = "text";
   portfolioName.className = "efund-portfolio-name";
   portfolioName.placeholder = "新组合名称";
-  row.append(efundNode("label", "", "组合"), portfolioSelect, portfolioName);
+  const portfolioNote = efundNode("span", "efund-hint");
+  row.append(efundNode("label", "", "组合"), portfolioSelect, portfolioName, portfolioNote);
 
   function currentTop() {
     if (accountSelect.value.startsWith("account:")) {
@@ -1634,21 +1640,26 @@ function renderEfundGroup(group, preview) {
 
   function fillPortfolioOptions(initialValue) {
     const top = currentTop();
+    const choices = portfolioChoices(top);
     portfolioSelect.replaceChildren();
     const none = document.createElement("option");
     none.value = "none";
     none.textContent = "请选择组合";
     portfolioSelect.append(none);
-    if (accountSelect.value === "new" || (top && !top.has_children)) {
+    if (accountSelect.value === "new" || choices.allowDirect) {
       const direct = document.createElement("option");
       direct.value = "direct";
       direct.textContent = "直接记在账户上";
       portfolioSelect.append(direct);
     }
-    const create = document.createElement("option");
-    create.value = "new";
-    create.textContent = "新建组合";
-    portfolioSelect.append(create);
+    if (accountSelect.value === "new" || choices.allowNew) {
+      const create = document.createElement("option");
+      create.value = "new";
+      create.textContent = "新建组合";
+      portfolioSelect.append(create);
+    }
+    portfolioNote.textContent = choices.note;
+    portfolioNote.hidden = !choices.note;
     if (top) {
       for (const portfolio of preview.accounts.filter((account) => account.parent_id === top.id)) {
         const option = document.createElement("option");
@@ -2059,6 +2070,9 @@ function renderEfundComplete(preview, summary) {
   );
   panel.append(totals);
   if (efundRefreshError) panel.append(efundNode("p", "efund-warning", efundRefreshError));
+  if (preview.mapping_error) {
+    panel.append(efundNode("p", "efund-warning warning", `映射未保存：${preview.mapping_error}`));
+  }
 
   const applied = efundGroupedRows(summary.rows, "applied");
   if (applied.length) {

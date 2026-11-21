@@ -265,13 +265,13 @@
   }
 
   const importAccounts = [
-    { id: "fund_top", name: "示例基金账户", type: "fund", currency: "CNY", has_children: true },
-    { id: "fund_core", name: "示例组合C", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false },
-    { id: "fund_pending", name: "示例组合D", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false },
-    { id: "fund_done", name: "示例组合E", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false },
-    { id: "fund_legacy", name: "示例旧基金账户", type: "fund", currency: "CNY", has_children: false },
-    { id: "fund_spare", name: "示例备用基金账户", type: "fund", currency: "CNY", has_children: false },
-    { id: "mixed_top", name: "示例混合账户", type: "mixed", currency: "CNY", has_children: false },
+    { id: "fund_top", name: "示例基金账户", type: "fund", currency: "CNY", has_children: true, has_snapshots: false },
+    { id: "fund_core", name: "示例组合C", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false, has_snapshots: true },
+    { id: "fund_pending", name: "示例组合D", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false, has_snapshots: true },
+    { id: "fund_done", name: "示例组合E", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false, has_snapshots: true },
+    { id: "fund_legacy", name: "示例旧基金账户", type: "fund", currency: "CNY", has_children: false, has_snapshots: true },
+    { id: "fund_spare", name: "示例备用基金账户", type: "fund", currency: "CNY", has_children: false, has_snapshots: true },
+    { id: "mixed_top", name: "示例混合账户", type: "mixed", currency: "CNY", has_children: false, has_snapshots: false },
   ];
 
   const previewGroups = [

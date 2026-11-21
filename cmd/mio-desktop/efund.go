@@ -41,14 +41,15 @@ type efundSession struct {
 }
 
 type EfundAccountOption struct {
-	ID          string             `json:"id"`
-	Name        string             `json:"name"`
-	Platform    string             `json:"platform,omitempty"`
-	Type        domain.AccountType `json:"type"`
-	Currency    string             `json:"currency"`
-	ParentID    string             `json:"parent_id,omitempty"`
-	ParentName  string             `json:"parent_name,omitempty"`
-	HasChildren bool               `json:"has_children"`
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	Platform     string             `json:"platform,omitempty"`
+	Type         domain.AccountType `json:"type"`
+	Currency     string             `json:"currency"`
+	ParentID     string             `json:"parent_id,omitempty"`
+	ParentName   string             `json:"parent_name,omitempty"`
+	HasChildren  bool               `json:"has_children"`
+	HasSnapshots bool               `json:"has_snapshots"`
 }
 
 type EfundGroupPreview struct {
@@ -168,9 +169,15 @@ func NewEfundService(svc *domain.Service, st *store.Store, dbPath string) *Efund
 }
 
 func (s *EfundService) Preview(dataBase64, password, fileName string) (*EfundPreview, error) {
+	if len(dataBase64) > base64.StdEncoding.EncodedLen(efund.MaxInputBytes) {
+		return nil, fmt.Errorf("文件过大：超过 %d MB 上限", efund.MaxInputBytes>>20)
+	}
 	data, err := base64.StdEncoding.DecodeString(dataBase64)
 	if err != nil {
 		return nil, errors.New("文件数据读取失败")
+	}
+	if err := efund.CheckInputSize(int64(len(data))); err != nil {
+		return nil, err
 	}
 	parsed, err := efund.ParseBytes(fileName, data, func() (string, error) {
 		if password == "" {
@@ -219,17 +226,19 @@ func (s *EfundService) Remap(token string, selections []EfundSelection) (*EfundP
 	for _, h := range session.parsed.Holdings {
 		valid[efund.MappingKey(h.SalesOrg, h.TradeAccount)] = true
 	}
+	created := []domain.Account{}
 	for _, selection := range selections {
 		key := efund.MappingKey(selection.SalesOrg, selection.TradeAccount)
 		if !valid[key] {
 			return nil, fmt.Errorf("未知的交易账户：%s / %s", selection.SalesOrg, selection.TradeAccount)
 		}
-		accounts, err = applyEfundSelection(ctx, s.svc, mapping, accounts, selection)
+		accounts, err = applyEfundSelection(ctx, s.svc, mapping, accounts, selection, &created)
 		if err != nil {
+			archiveEfundCreated(ctx, s.svc, created)
 			return nil, err
 		}
 	}
-	if !mappingEqual(mapping, session.mapping) {
+	if !mappingEqual(mapping, session.mapping) || session.mappingErr != "" {
 		session.mapping = mapping
 		if err := efund.WriteMapping(s.mappingPath, mapping); err != nil {
 			session.mappingErr = err.Error()

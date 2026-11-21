@@ -461,6 +461,43 @@ func TestEfundDesktopCreatesPortfolioWhenSavingMapping(t *testing.T) {
 	}
 }
 
+func TestEfundDesktopAccountOptionsShowSnapshots(t *testing.T) {
+	h := newEfundHarness(t)
+	withSnapshot := h.account(t, "有快照账户")
+	h.account(t, "空账户")
+	result, err := h.svc.Submit(context.Background(), domain.SubmitInput{
+		AccountID: withSnapshot.ID, AsOf: "2026-11-01", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例成长混合", Code: "000216", Quantity: "1", MarketValueCents: 100}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.svc.Confirm(context.Background(), result.SnapshotID); err != nil {
+		t.Fatal(err)
+	}
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "snapshots.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags := map[string]bool{}
+	for _, option := range preview.Accounts {
+		flags[option.ID] = option.HasSnapshots
+	}
+	if !flags[withSnapshot.ID] {
+		t.Fatalf("account with snapshots not marked: %+v", preview.Accounts)
+	}
+	for _, option := range preview.Accounts {
+		if option.Name == "空账户" && option.HasSnapshots {
+			t.Fatalf("empty account marked as having snapshots: %+v", option)
+		}
+	}
+}
+
 func TestEfundDesktopFailedMappingArchivesNewAccount(t *testing.T) {
 	h := newEfundHarness(t)
 	data := efundBook(t, [][]efundCell{
@@ -482,6 +519,96 @@ func TestEfundDesktopFailedMappingArchivesNewAccount(t *testing.T) {
 		if account.Name == "将被清理" && !account.Archived {
 			t.Fatalf("failed mapping left orphan account: %+v", account)
 		}
+	}
+}
+
+func TestEfundDesktopFailedRemapRollsBackAllCreatedAccounts(t *testing.T) {
+	h := newEfundHarness(t)
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundHolding(2, "000217", "示例价值混合", efundSalesB, "T0000002", "10", "2.0", "2026/11/17", "20.00", "2026/11/17"),
+		efundFooter(2),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "rollback.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.Remap(preview.Token, []EfundSelection{
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountName: "多选账户", PortfolioName: "多选组合"},
+		{SalesOrg: efundSalesB, TradeAccount: "T0000002", Mode: "map", AccountName: "后失败账户"},
+	}); err == nil {
+		t.Fatal("incomplete second selection was accepted")
+	}
+	want := map[string]bool{"多选账户": false, "多选组合": false, "后失败账户": false}
+	for _, account := range mustAccounts(t, h.st) {
+		if _, ok := want[account.Name]; ok {
+			want[account.Name] = account.Archived
+		}
+	}
+	for name, archived := range want {
+		if !archived {
+			t.Fatalf("created account %q was not rolled back", name)
+		}
+	}
+	if _, err := os.Stat(efund.DefaultMappingPath(h.dbPath)); !os.IsNotExist(err) {
+		t.Fatalf("failed remap wrote mapping: %v", err)
+	}
+	if h.service.session == nil || len(h.service.session.mapping.Mappings) != 0 {
+		t.Fatalf("failed remap changed session mapping: %+v", h.service.session)
+	}
+}
+
+func TestEfundDesktopMappingWriteRetriesAfterFailure(t *testing.T) {
+	h := newEfundHarness(t)
+	account := h.account(t, "示例账户")
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "retry.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h.service.mappingPath = filepath.Join(blocker, "efund-map.json")
+	selection := []EfundSelection{{
+		SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountID: account.ID, Direct: true,
+	}}
+	preview, err = h.service.Remap(preview.Token, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.MappingError == "" {
+		t.Fatalf("mapping error missing: %+v", preview)
+	}
+	refreshed, err := h.service.Refresh(preview.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refreshed.MappingError == "" {
+		t.Fatalf("refresh lost pending mapping error: %+v", refreshed)
+	}
+
+	mappingPath := filepath.Join(t.TempDir(), "efund-map.json")
+	h.service.mappingPath = mappingPath
+	preview, err = h.service.Remap(preview.Token, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.MappingError != "" {
+		t.Fatalf("mapping error not cleared after retry: %+v", preview)
+	}
+	mapping, err := efund.LoadMapping(mappingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(mapping.Mappings) != 1 || mapping.Mappings[0].AccountID != account.ID {
+		t.Fatalf("mapping was not retried: %+v", mapping.Mappings)
 	}
 }
 

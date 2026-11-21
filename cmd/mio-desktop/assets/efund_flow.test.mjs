@@ -1,5 +1,15 @@
 import assert from "node:assert/strict";
-import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
+import { groupState, importSummary, mergeResults, portfolioChoices, priorImportUndo, targetState } from "./efund_flow.mjs";
+
+assert.deepEqual(portfolioChoices(null), { allowDirect: true, allowNew: true, note: "" });
+assert.deepEqual(
+  portfolioChoices({ has_children: false, has_snapshots: true }),
+  { allowDirect: true, allowNew: false, note: "该账户已有快照，不能再新建组合" },
+);
+assert.deepEqual(
+  portfolioChoices({ has_children: true, has_snapshots: false }),
+  { allowDirect: false, allowNew: true, note: "" },
+);
 
 const targets = [
   { key: "id:acc_a", account_id: "acc_a", account_name: "示例账户 A", already_imported: false },

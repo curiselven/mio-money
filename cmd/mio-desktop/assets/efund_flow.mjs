@@ -4,6 +4,15 @@ export function importIsPending(status) {
   return typeof status === "string" && status.includes("待确认");
 }
 
+export function portfolioChoices(top) {
+  if (!top) return { allowDirect: true, allowNew: true, note: "" };
+  return {
+    allowDirect: !top.has_children,
+    allowNew: !top.has_snapshots,
+    note: top.has_snapshots ? "该账户已有快照，不能再新建组合" : "",
+  };
+}
+
 export function targetForGroup(group, targets) {
   if (!group?.account_id) return null;
   return (targets || []).find((target) => target.account_id === group.account_id) || null;

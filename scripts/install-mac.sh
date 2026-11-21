@@ -84,22 +84,25 @@ if [[ -z "$ICON" ]]; then
   fi
 fi
 
-step "检查运行中的 Mio"
-if [[ "$DRY_RUN" -eq 0 ]] && pgrep -x "$EXECUTABLE_NAME" >/dev/null 2>&1; then
-  echo "Mio 正在运行，请先退出后再安装（不会自动结束进程）。" >&2
-  exit 1
-fi
-echo "  pgrep -x ${EXECUTABLE_NAME}（运行中会退出）"
+step "检查运行中的 Mio / mio-desktop"
+for process_name in "$EXECUTABLE_NAME" "mio-desktop"; do
+  echo "  pgrep -x ${process_name}（匹配到会退出，不结束进程）"
+  if [[ "$DRY_RUN" -eq 0 ]] && pgrep -x "$process_name" >/dev/null 2>&1; then
+    echo "${process_name} 正在运行，请先退出后再安装（不会自动结束进程）。" >&2
+    exit 1
+  fi
+done
 
+umask 077
 step "备份数据库"
+echo "  umask 077"
 if [[ -f "$DB_PATH" ]]; then
   run mkdir -p -m 0700 "$BACKUP_DIR"
-  run cp -p "$DB_PATH" "$BACKUP_PATH"
-  run chmod 0600 "$BACKUP_PATH"
+  run chmod 0700 "$BACKUP_DIR"
+  run install -m 0600 "$DB_PATH" "$BACKUP_PATH"
   for suffix in -wal -shm; do
     if [[ -f "$DB_PATH$suffix" ]]; then
-      run cp -p "$DB_PATH$suffix" "$BACKUP_PATH$suffix"
-      run chmod 0600 "$BACKUP_PATH$suffix"
+      run install -m 0600 "$DB_PATH$suffix" "$BACKUP_PATH$suffix"
     fi
   done
   echo "  数据库备份目标: $BACKUP_PATH"
