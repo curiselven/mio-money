@@ -135,7 +135,23 @@ func (s *Store) migrate(ctx context.Context) error {
 	if dangling {
 		return errors.New("migration left dangling foreign keys")
 	}
-	return nil
+	return s.ensureSiblingNameIndex(ctx)
+}
+
+// ensureSiblingNameIndex adds the unique sibling-name index once the database
+// has no active duplicates. Older databases may already contain them, and the
+// index is retried on every open so it appears after the user resolves them.
+func (s *Store) ensureSiblingNameIndex(ctx context.Context) error {
+	var found int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM accounts
+		WHERE archived = 0
+		GROUP BY COALESCE(parent_id, ''), name COLLATE NOCASE
+		HAVING COUNT(*) > 1 LIMIT 1`).Scan(&found)
+	if err == sql.ErrNoRows {
+		_, err = s.db.ExecContext(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS accounts_sibling_name_unique
+			ON accounts(COALESCE(parent_id, ''), name COLLATE NOCASE) WHERE archived = 0`)
+	}
+	return err
 }
 
 func nowString() string { return time.Now().UTC().Format(time.RFC3339Nano) }

@@ -98,12 +98,9 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 	if source == SourceLoan || !source.Valid() {
 		return nil, fmt.Errorf("source %q must be one of screenshot, mcp, statement, manual, efund_import", source)
 	}
-	account, err := s.repo.GetAccount(ctx, in.AccountID)
+	account, err := s.writableAccount(ctx, in.AccountID, "写入")
 	if err != nil {
 		return nil, err
-	}
-	if account.Archived {
-		return nil, errors.New("账户已归档，请先恢复后再写入")
 	}
 	if children, err := s.repo.HasChildren(ctx, account.ID); err != nil {
 		return nil, err
@@ -174,12 +171,9 @@ func (s *Service) confirm(ctx context.Context, snapshotID string, allowAnomalies
 	if snapshot.Status != StatusPending {
 		return nil, fmt.Errorf("snapshot %s is %s, only pending snapshots can be confirmed", snapshotID, snapshot.Status)
 	}
-	account, err := s.repo.GetAccount(ctx, snapshot.AccountID)
+	account, err := s.writableAccount(ctx, snapshot.AccountID, "确认")
 	if err != nil {
 		return nil, err
-	}
-	if account.Archived {
-		return nil, errors.New("账户已归档，请先恢复后再确认")
 	}
 	prev, err := s.repo.LastConfirmedBefore(ctx, snapshot.AccountID, snapshot.AsOf)
 	if err != nil {
@@ -288,7 +282,8 @@ type UpsertAccountInput struct {
 func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Account, error) {
 	now := s.now().UTC()
 	if in.ID == "" {
-		if strings.TrimSpace(in.Name) == "" {
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
 			return nil, errors.New("name is required when creating an account")
 		}
 		if in.ParentID != "" {
@@ -328,7 +323,7 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 			currency = "CNY"
 		}
 		if in.Archived == nil || !*in.Archived {
-			if err := s.ensureUniqueName(ctx, in.ParentID, in.Name, ""); err != nil {
+			if err := s.ensureUniqueName(ctx, in.ParentID, name, ""); err != nil {
 				return nil, err
 			}
 		}
@@ -338,7 +333,7 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		}
 		account := &Account{
 			ID:        newID("acc"),
-			Name:      in.Name,
+			Name:      name,
 			Platform:  in.Platform,
 			Type:      in.Type,
 			Currency:  currency,
@@ -364,7 +359,11 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 	wasName := account.Name
 	cascade := false
 	if in.Name != "" {
-		account.Name = in.Name
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
+			return nil, errors.New("名称不能为空")
+		}
+		account.Name = name
 	}
 	if in.Platform != "" {
 		account.Platform = in.Platform
@@ -375,6 +374,9 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		parent, err := s.repo.GetAccount(ctx, account.ParentID)
 		if err != nil {
 			return nil, err
+		}
+		if parent.Archived {
+			return nil, errors.New("上级账户已归档，请先恢复后再修改组合")
 		}
 		account.Type = parent.Type
 		account.Currency = parent.Currency
@@ -438,7 +440,7 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		}
 		account.Archived = *in.Archived
 	}
-	nameChanged := in.Name != "" && strings.TrimSpace(in.Name) != strings.TrimSpace(wasName)
+	nameChanged := in.Name != "" && account.Name != wasName
 	if !account.Archived && (nameChanged || (wasArchived && in.Archived != nil && !*in.Archived)) {
 		if err := s.ensureUniqueName(ctx, account.ParentID, account.Name, account.ID); err != nil {
 			return nil, err
@@ -468,6 +470,28 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 			if err := s.repo.UpsertAccount(ctx, &accounts[i]); err != nil {
 				return nil, err
 			}
+		}
+	}
+	return account, nil
+}
+
+// writableAccount rejects writes to archived accounts and to portfolios whose
+// parent account is archived.
+func (s *Service) writableAccount(ctx context.Context, id, action string) (*Account, error) {
+	account, err := s.repo.GetAccount(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account.Archived {
+		return nil, fmt.Errorf("账户已归档，请先恢复后再%s", action)
+	}
+	if account.ParentID != "" {
+		parent, err := s.repo.GetAccount(ctx, account.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent.Archived {
+			return nil, fmt.Errorf("上级账户已归档，请先恢复后再%s", action)
 		}
 	}
 	return account, nil

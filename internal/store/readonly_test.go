@@ -16,7 +16,7 @@ func TestCheckReadOnlySchemaRejectsOldDatabase(t *testing.T) {
 		parentColumn bool
 	}{
 		{"old-version", 6, false},
-		{"missing-parent-column", 7, false},
+		{"missing-parent-column", 8, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st, err := OpenReadOnly(writeSchemaDB(t, tc.version, tc.parentColumn))

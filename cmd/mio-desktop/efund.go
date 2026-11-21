@@ -226,12 +226,14 @@ func (s *EfundService) Remap(token string, selections []EfundSelection) (*EfundP
 	for _, h := range session.parsed.Holdings {
 		valid[efund.MappingKey(h.SalesOrg, h.TradeAccount)] = true
 	}
-	created := []domain.Account{}
 	for _, selection := range selections {
 		key := efund.MappingKey(selection.SalesOrg, selection.TradeAccount)
 		if !valid[key] {
 			return nil, fmt.Errorf("未知的交易账户：%s / %s", selection.SalesOrg, selection.TradeAccount)
 		}
+	}
+	created := []domain.Account{}
+	for _, selection := range selections {
 		accounts, err = applyEfundSelection(ctx, s.svc, mapping, accounts, selection, &created)
 		if err != nil {
 			archiveEfundCreated(ctx, s.svc, created)

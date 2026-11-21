@@ -188,6 +188,131 @@ func TestParentCurrencyChangeRejectedBySnapshotCurrency(t *testing.T) {
 	}
 }
 
+func TestParentCurrencyChangeRejectedByPendingSnapshot(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newTestServiceAndStore(t)
+	parent, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例组合", ParentID: parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: child.ID, AsOf: "2026-11-17", Source: domain.SourceMCP, Currency: "USD",
+		Items: []domain.Item{{Name: "示例基金", MarketValueCents: 100}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: parent.ID, Currency: "EUR"}); err == nil ||
+		!strings.Contains(err.Error(), "币种") {
+		t.Fatalf("parent currency change with a pending USD snapshot error = %v", err)
+	}
+}
+
+func TestArchivedParentRejectsPortfolioWrites(t *testing.T) {
+	ctx := context.Background()
+	svc, st := newTestServiceAndStore(t)
+	parent, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例组合", ParentID: parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: child.ID, Archived: boolp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: parent.ID, Archived: boolp(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: child.ID, Archived: boolp(false)}); err == nil ||
+		!strings.Contains(err.Error(), "上级账户已归档") {
+		t.Fatalf("restore under archived parent error = %v", err)
+	}
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: child.ID, Name: "改名组合"}); err == nil ||
+		!strings.Contains(err.Error(), "上级账户已归档") {
+		t.Fatalf("rename under archived parent error = %v", err)
+	}
+
+	active, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "另一账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingChild, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "待确认组合", ParentID: active.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: pendingChild.ID, AsOf: "2026-11-17", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例基金", MarketValueCents: 100}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAccount(ctx, active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Archived = true
+	if err := st.UpsertAccount(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Submit(ctx, domain.SubmitInput{
+		AccountID: pendingChild.ID, AsOf: "2026-11-18", Source: domain.SourceMCP,
+		Items: []domain.Item{{Name: "示例基金", MarketValueCents: 100}},
+	}); err == nil || !strings.Contains(err.Error(), "上级账户已归档") {
+		t.Fatalf("submit under archived parent error = %v", err)
+	}
+	if _, err := svc.Confirm(ctx, result.SnapshotID); err == nil || !strings.Contains(err.Error(), "上级账户已归档") {
+		t.Fatalf("confirm under archived parent error = %v", err)
+	}
+	if _, err := svc.ApproveAnomalous(ctx, result.SnapshotID); err == nil || !strings.Contains(err.Error(), "上级账户已归档") {
+		t.Fatalf("approve under archived parent error = %v", err)
+	}
+}
+
+func TestAccountNamesAreTrimmed(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newTestServiceAndStore(t)
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "   ", Type: domain.AccountFund}); err == nil {
+		t.Fatal("blank account name was accepted")
+	}
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: " 示例账户 ", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Name != "示例账户" {
+		t.Fatalf("created name = %q", account.Name)
+	}
+	child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: " 示例组合 ", ParentID: account.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Name != "示例组合" {
+		t.Fatalf("portfolio name = %q", child.Name)
+	}
+	renamed, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: child.ID, Name: " 改名组合 "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Name != "改名组合" {
+		t.Fatalf("renamed = %q", renamed.Name)
+	}
+	if _, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: child.ID, Name: "  "}); err == nil {
+		t.Fatal("blank rename was accepted")
+	}
+	stored, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: child.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Name != "改名组合" {
+		t.Fatalf("name after rejected rename = %q", stored.Name)
+	}
+}
+
 func TestSiblingNamesUniqueOnCreateAndRename(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newTestServiceAndStore(t)

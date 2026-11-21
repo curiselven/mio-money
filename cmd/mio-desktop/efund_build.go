@@ -234,20 +234,29 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 		if name == "" {
 			return fail(errors.New("请输入新账户名称"))
 		}
-		for _, account := range accounts {
+		found := false
+		for _, account := range *created {
 			if !account.Archived && account.ParentID == "" && strings.EqualFold(strings.TrimSpace(account.Name), name) {
-				return fail(fmt.Errorf("账户名「%s」已存在，请选择已有账户", name))
+				top, found = account, true
+				break
 			}
 		}
-		account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
-			Name: name, Type: domain.AccountFund, Currency: "CNY",
-		})
-		if err != nil {
-			return fail(err)
+		if !found {
+			for _, account := range accounts {
+				if !account.Archived && account.ParentID == "" && strings.EqualFold(strings.TrimSpace(account.Name), name) {
+					return fail(fmt.Errorf("账户名「%s」已存在，请选择已有账户", name))
+				}
+			}
+			account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
+				Name: name, Type: domain.AccountFund, Currency: "CNY",
+			})
+			if err != nil {
+				return fail(err)
+			}
+			top = *account
+			*created = append(*created, *account)
+			accounts = append(accounts, *account)
 		}
-		top = *account
-		*created = append(*created, *account)
-		accounts = append(accounts, *account)
 	}
 
 	var leaf domain.Account
@@ -275,20 +284,29 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 		if name == "" {
 			return fail(errors.New("请输入组合名称"))
 		}
-		for _, account := range accounts {
+		found := false
+		for _, account := range *created {
 			if account.ParentID == top.ID && !account.Archived && strings.EqualFold(strings.TrimSpace(account.Name), name) {
-				return fail(fmt.Errorf("组合「%s」已存在，请选择已有组合", name))
+				leaf, found = account, true
+				break
 			}
 		}
-		child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
-			Name: name, ParentID: top.ID,
-		})
-		if err != nil {
-			return fail(err)
+		if !found {
+			for _, account := range accounts {
+				if account.ParentID == top.ID && !account.Archived && strings.EqualFold(strings.TrimSpace(account.Name), name) {
+					return fail(fmt.Errorf("组合「%s」已存在，请选择已有组合", name))
+				}
+			}
+			child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
+				Name: name, ParentID: top.ID,
+			})
+			if err != nil {
+				return fail(err)
+			}
+			leaf = *child
+			*created = append(*created, *child)
+			accounts = append(accounts, *child)
 		}
-		leaf = *child
-		*created = append(*created, *child)
-		accounts = append(accounts, *child)
 	}
 	entry.AccountID = leaf.ID
 	entry.Account = leaf.Name

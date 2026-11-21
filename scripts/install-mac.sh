@@ -93,22 +93,24 @@ for process_name in "$EXECUTABLE_NAME" "mio-desktop"; do
   fi
 done
 
-umask 077
 step "备份数据库"
-echo "  umask 077"
-if [[ -f "$DB_PATH" ]]; then
-  run mkdir -p -m 0700 "$BACKUP_DIR"
-  run chmod 0700 "$BACKUP_DIR"
-  run install -m 0600 "$DB_PATH" "$BACKUP_PATH"
-  for suffix in -wal -shm; do
-    if [[ -f "$DB_PATH$suffix" ]]; then
-      run install -m 0600 "$DB_PATH$suffix" "$BACKUP_PATH$suffix"
-    fi
-  done
-  echo "  数据库备份目标: $BACKUP_PATH"
-else
-  echo "  未找到 ${DB_PATH}，跳过数据库备份"
-fi
+(
+  umask 077
+  echo "  umask 077"
+  if [[ -f "$DB_PATH" ]]; then
+    run mkdir -p -m 0700 "$BACKUP_DIR"
+    run chmod 0700 "$BACKUP_DIR"
+    run install -m 0600 "$DB_PATH" "$BACKUP_PATH"
+    for suffix in -wal -shm; do
+      if [[ -f "$DB_PATH$suffix" ]]; then
+        run install -m 0600 "$DB_PATH$suffix" "$BACKUP_PATH$suffix"
+      fi
+    done
+    echo "  数据库备份目标: $BACKUP_PATH"
+  else
+    echo "  未找到 ${DB_PATH}，跳过数据库备份"
+  fi
+)
 
 step "清理旧构建产物"
 remove_build_path "$APP_PATH"

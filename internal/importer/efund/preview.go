@@ -119,7 +119,7 @@ func Build(ctx context.Context, repo ReadRepo, parsed *Result, mapping *Mapping)
 		out.Groups = append(out.Groups, gp)
 		out.FileTotalCents += gp.MarketValueCents
 		switch gp.Status {
-		case "matched", "new":
+		case "matched":
 			out.MappedTotalCents += gp.MarketValueCents
 		case "ignored":
 			out.IgnoredTotalCents += gp.MarketValueCents

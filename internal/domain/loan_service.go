@@ -20,7 +20,7 @@ type SetLoanTermsInput struct {
 // SetLoanTerms stores terms for a liability account. When the anchor date has
 // no snapshot yet, it also records the anchor balance as a confirmed snapshot.
 func (s *Service) SetLoanTerms(ctx context.Context, in SetLoanTermsInput) (*LoanTerms, error) {
-	account, err := s.repo.GetAccount(ctx, in.AccountID)
+	account, err := s.writableAccount(ctx, in.AccountID, "写入贷款信息")
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ type SetLoanHistoryInput struct {
 // previous anchor terms are removed (only one mode per account); snapshots
 // already written are kept.
 func (s *Service) SetLoanHistory(ctx context.Context, in SetLoanHistoryInput) (*LoanHistory, error) {
-	account, err := s.repo.GetAccount(ctx, in.AccountID)
+	account, err := s.writableAccount(ctx, in.AccountID, "写入贷款信息")
 	if err != nil {
 		return nil, err
 	}
@@ -348,9 +348,11 @@ func (s *Service) SyncLoans(ctx context.Context, today, accountID string) (*Loan
 	}
 	names := map[string]string{}
 	currencies := map[string]string{}
+	archived := map[string]bool{}
 	for _, a := range accounts {
 		names[a.ID] = a.Name
 		currencies[a.ID] = a.Currency
+		archived[a.ID] = a.Archived
 	}
 	addEntry := func(id string, created int, calc *LoanCalculation) {
 		entry := LoanSyncAccount{
@@ -376,6 +378,9 @@ func (s *Service) SyncLoans(ctx context.Context, today, accountID string) (*Loan
 		if accountID != "" && terms.AccountID != accountID {
 			continue
 		}
+		if archived[terms.AccountID] {
+			continue
+		}
 		periods, err := LoanSchedule(terms)
 		if err != nil {
 			return nil, fmt.Errorf("account %s: %w", terms.AccountID, err)
@@ -397,6 +402,9 @@ func (s *Service) SyncLoans(ctx context.Context, today, accountID string) (*Loan
 	}
 	for _, history := range histories {
 		if accountID != "" && history.AccountID != accountID {
+			continue
+		}
+		if archived[history.AccountID] {
 			continue
 		}
 		periods, err := LoanHistorySchedule(history)

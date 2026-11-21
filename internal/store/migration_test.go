@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,7 +133,7 @@ func TestLoanHistoryMigrationKeepsAnchorLoan(t *testing.T) {
 	if history, err := st.GetLoanHistory(ctx, "acc_old"); err != nil || history != nil {
 		t.Fatalf("history = %+v, err = %v", history, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 8 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
@@ -222,7 +223,7 @@ func TestDisbursementMigrationKeepsHistory(t *testing.T) {
 	if err != nil || updated == nil || updated.DisbursementDate != "2025-12-15" {
 		t.Fatalf("updated = %+v, err = %v", updated, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 8 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
@@ -286,7 +287,7 @@ func TestEfundSourceMigrationKeepsSnapshots(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("insert efund snapshot: %v", err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 8 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
 }
@@ -351,7 +352,104 @@ func TestAccountParentMigration(t *testing.T) {
 	if err != nil || got.ParentID != "acc_old" {
 		t.Fatalf("child = %+v, err=%v", got, err)
 	}
-	if version, err := st.SchemaVersion(ctx); err != nil || version != 7 {
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 8 {
 		t.Fatalf("version = %d, err = %v", version, err)
 	}
+}
+
+func TestSiblingNameIndexSkipsExistingDuplicates(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v7.db")
+	names := []string{
+		"0001_init.sql", "0002_loans.sql", "0003_loan_histories.sql",
+		"0004_loan_disbursement.sql", "0005_principal_rule.sql",
+		"0006_efund_import_source.sql", "0007_account_parent.sql",
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys=OFF`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range names {
+		body, err := os.ReadFile(filepath.Join("migrations", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, stmt := range []string{
+		`INSERT INTO schema_version(version, applied_at) VALUES (1, '` + now + `'), (2, '` + now + `'),
+			(3, '` + now + `'), (4, '` + now + `'), (5, '` + now + `'), (6, '` + now + `'), (7, '` + now + `')`,
+		`INSERT INTO accounts(id, name, type, created_at, updated_at) VALUES
+			('acc_dup1', '示例账户', 'fund', '` + now + `', '` + now + `'),
+			('acc_dup2', '示例账户', 'fund', '` + now + `', '` + now + `')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatalf("migration with duplicates failed: %v", err)
+	}
+	if version, err := st.SchemaVersion(ctx); err != nil || version != 8 {
+		t.Fatalf("version = %d, err = %v", version, err)
+	}
+	if hasSiblingNameIndex(t, path) {
+		t.Fatal("unique index was created over existing duplicates")
+	}
+	st.Close()
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`UPDATE accounts SET archived = 1 WHERE id = 'acc_dup2'`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	st, err = store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if !hasSiblingNameIndex(t, path) {
+		t.Fatal("unique index was not created after duplicates were archived")
+	}
+	err = st.UpsertAccount(ctx, &domain.Account{
+		ID: "acc_new", Name: "示例账户", Type: domain.AccountFund, Currency: "CNY",
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "同名账户已存在") {
+		t.Fatalf("duplicate insert error = %v", err)
+	}
+}
+
+func hasSiblingNameIndex(t *testing.T, path string) bool {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index' AND name = 'accounts_sibling_name_unique'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	return count > 0
 }

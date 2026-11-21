@@ -79,7 +79,6 @@ type GroupPreview struct {
 	AccountID        string       `json:"account_id,omitempty"`
 	AccountName      string       `json:"account_name,omitempty"`
 	Status           string       `json:"status"`
-	NewAccount       bool         `json:"new_account"`
 	Unmapped         bool         `json:"unmapped"`
 	Ignored          bool         `json:"ignored"`
 	FundCount        int          `json:"fund_count"`

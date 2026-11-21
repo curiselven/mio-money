@@ -559,6 +559,74 @@ func TestEfundDesktopFailedRemapRollsBackAllCreatedAccounts(t *testing.T) {
 	}
 }
 
+func TestEfundDesktopRemapReusesNewTargets(t *testing.T) {
+	h := newEfundHarness(t)
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundHolding(2, "000217", "示例价值混合", efundSalesB, "T0000002", "10", "2.0", "2026/11/17", "20.00", "2026/11/17"),
+		efundFooter(2),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "reuse.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err = h.service.Remap(preview.Token, []EfundSelection{
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountName: "批量账户", PortfolioName: "批量组合"},
+		{SalesOrg: efundSalesB, TradeAccount: "T0000002", Mode: "map", AccountName: "批量账户", PortfolioName: "批量组合"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accounts := mustAccounts(t, h.st)
+	tops, portfolios := 0, 0
+	for _, account := range accounts {
+		if account.Archived {
+			continue
+		}
+		switch account.Name {
+		case "批量账户":
+			tops++
+		case "批量组合":
+			portfolios++
+		}
+	}
+	if tops != 1 || portfolios != 1 {
+		t.Fatalf("reused targets: tops=%d portfolios=%d accounts=%+v", tops, portfolios, accounts)
+	}
+	if len(preview.Targets) != 1 || preview.Targets[0].GroupCount != 2 {
+		t.Fatalf("targets = %+v", preview.Targets)
+	}
+}
+
+func TestEfundDesktopRemapUnknownKeyCreatesNothing(t *testing.T) {
+	h := newEfundHarness(t)
+	data := efundBook(t, [][]efundCell{
+		efundHeader(),
+		efundHolding(1, "000216", "示例成长混合", efundSalesA, "T0000001", "100", "1.0", "2026/11/17", "100.00", "2026/11/17"),
+		efundFooter(1),
+	})
+	preview, err := h.service.Preview(efundBase64(data), "", "unknown.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.service.Remap(preview.Token, []EfundSelection{
+		{SalesOrg: efundSalesA, TradeAccount: "T0000001", Mode: "map", AccountName: "不应创建"},
+		{SalesOrg: efundSalesA, TradeAccount: "T9999999", Mode: "map", AccountName: "也不应创建"},
+	})
+	if err == nil {
+		t.Fatal("unknown trade account was accepted")
+	}
+	for _, account := range mustAccounts(t, h.st) {
+		if account.Name == "不应创建" && !account.Archived {
+			t.Fatalf("unknown key left an active account: %+v", account)
+		}
+	}
+	if _, err := os.Stat(efund.DefaultMappingPath(h.dbPath)); !os.IsNotExist(err) {
+		t.Fatalf("failed remap wrote mapping: %v", err)
+	}
+}
+
 func TestEfundDesktopMappingWriteRetriesAfterFailure(t *testing.T) {
 	h := newEfundHarness(t)
 	account := h.account(t, "示例账户")

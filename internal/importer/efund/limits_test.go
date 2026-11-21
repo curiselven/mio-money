@@ -2,6 +2,7 @@ package efund
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,22 @@ func TestSheetCellLimit(t *testing.T) {
 	}
 }
 
+func TestSheetEmptyCellLimitAcrossRows(t *testing.T) {
+	perRow := 500
+	rows := maxSheetCells/perRow + 2
+	var sheet strings.Builder
+	sheet.WriteString(`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
+	for i := 1; i <= rows; i++ {
+		fmt.Fprintf(&sheet, `<row r="%d">`, i)
+		sheet.WriteString(strings.Repeat("<c/>", perRow))
+		sheet.WriteString(`</row>`)
+	}
+	sheet.WriteString(`</sheetData></worksheet>`)
+	if _, err := readSheet(zipWithSheet(t, sheet.String())); err == nil || !strings.Contains(err.Error(), "单元格过多") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCellTextLimit(t *testing.T) {
 	text := strings.Repeat("a", maxCellTextBytes+1)
 	sheet := `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>` +
@@ -150,18 +167,36 @@ func TestRowNumberRejectsScientificAndLarge(t *testing.T) {
 
 func zipWithSheet(t *testing.T, sheet string) []byte {
 	t.Helper()
+	return zipWithParts(t, map[string]string{
+		"xl/workbook.xml":            `<workbook><sheets><sheet name="持有信息" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   sheet,
+	})
+}
+
+func TestSharedStringsLimit(t *testing.T) {
+	parts := map[string]string{
+		"xl/workbook.xml":            `<workbook><sheets><sheet name="持有信息" r:id="rId1"/></sheets></workbook>`,
+		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
+		"xl/worksheets/sheet1.xml":   `<worksheet><sheetData/></worksheet>`,
+		"xl/sharedStrings.xml": `<sst>` +
+			strings.Repeat(`<si><t>示例文本</t></si>`, maxSharedStrings+1) +
+			`</sst>`,
+	}
+	if _, err := readSheet(zipWithParts(t, parts)); err == nil || !strings.Contains(err.Error(), "sharedStrings 条目过多") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func zipWithParts(t *testing.T, parts map[string]string) []byte {
+	t.Helper()
 	file := filepath.Join(t.TempDir(), "sheet.xlsx")
 	out, err := os.Create(file)
 	if err != nil {
 		t.Fatal(err)
 	}
 	zw := zip.NewWriter(out)
-	files := map[string]string{
-		"xl/workbook.xml":            `<workbook><sheets><sheet name="持有信息" r:id="rId1"/></sheets></workbook>`,
-		"xl/_rels/workbook.xml.rels": `<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml":   sheet,
-	}
-	for name, body := range files {
+	for name, body := range parts {
 		writer, err := zw.Create(name)
 		if err != nil {
 			t.Fatal(err)
