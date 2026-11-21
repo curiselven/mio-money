@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -149,6 +150,7 @@ type windowStateSaver struct {
 
 func restoreAndTrackWindowState(app *application.App, window *application.WebviewWindow, path string) {
 	saver := &windowStateSaver{path: path, window: window}
+	lifecycle := &windowLifecycle{window: window, flush: saver.flush}
 	window.OnWindowEvent(events.Common.WindowDidMove, func(*application.WindowEvent) {
 		saver.touch()
 	})
@@ -158,9 +160,19 @@ func restoreAndTrackWindowState(app *application.App, window *application.Webvie
 	window.OnWindowEvent(events.Common.WindowClosing, func(*application.WindowEvent) {
 		saver.flush()
 	})
-	app.OnShutdown(saver.flush)
+	if runtime.GOOS == "darwin" {
+		window.RegisterHook(events.Common.WindowClosing, lifecycle.handleClosing)
+		app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
+			lifecycle.handleReopen()
+		})
+	}
+	app.OnShutdown(lifecycle.beginQuit)
 
 	var once sync.Once
+	gate := &showGate{window: window}
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		gate.scheduleFallback(windowShowFallback)
+	})
 	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
 		once.Do(func() {
 			state, usable := currentWindowState(window)
@@ -178,7 +190,8 @@ func restoreAndTrackWindowState(app *application.App, window *application.Webvie
 			if usable {
 				saver.activate(state)
 			}
-			window.Show()
+			gate.stopFallback()
+			gate.ensure()
 		})
 	})
 }
