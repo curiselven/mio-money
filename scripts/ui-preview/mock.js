@@ -34,7 +34,7 @@
     accounts: [
       {
         account_id: "acc_broker",
-        name: "海岬证券",
+        name: "示例证券账户",
         type: "stock",
         as_of: "2026-10-18",
         value_cents: 0,
@@ -45,7 +45,7 @@
       },
       {
         account_id: "acc_growth",
-        name: "长期成长组合",
+        name: "示例组合A",
         type: "stock",
         as_of: "2026-10-18",
         value_cents: w(386520.4),
@@ -59,7 +59,7 @@
       },
       {
         account_id: "acc_dividend",
-        name: "红利组合",
+        name: "示例组合B",
         type: "stock",
         as_of: "2026-10-18",
         value_cents: w(612340.6),
@@ -72,7 +72,7 @@
       },
       {
         account_id: "acc_fund",
-        name: "基金E账户",
+        name: "示例基金账户",
         type: "fund",
         as_of: "2026-10-18",
         value_cents: 0,
@@ -83,7 +83,7 @@
       },
       {
         account_id: "acc_fund_core",
-        name: "核心基金组合",
+        name: "示例组合C",
         type: "fund",
         as_of: "2026-10-18",
         value_cents: w(1505139),
@@ -97,7 +97,7 @@
       },
       {
         account_id: "acc_cash",
-        name: "日常现金",
+        name: "示例现金",
         type: "cash",
         as_of: "2026-10-18",
         value_cents: w(42800),
@@ -109,7 +109,7 @@
       },
       {
         account_id: "acc_loan",
-        name: "住房贷款",
+        name: "示例房贷",
         type: "liability",
         as_of: "2026-10-18",
         value_cents: w(-1286800),
@@ -133,32 +133,43 @@
   };
 
   const accountTree = {
-    owners: ["林澈", "周岚"],
+    owners: ["示例成员A", "示例成员B"],
     accounts: [
-      { id: "acc_broker", name: "海岬证券", type: "stock", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 3, latest_value_cents: w(998861), latest_as_of: "2026-10-18" },
-      { id: "acc_fund", name: "基金E账户", type: "fund", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 3, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
-      { id: "acc_cash", name: "日常现金", type: "cash", currency: "CNY", owner: "周岚", parent_id: "", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(42800), latest_as_of: "2026-10-18" },
-      { id: "acc_archive", name: "旧日储蓄", type: "other", currency: "CNY", owner: "林澈", parent_id: "", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
-      { id: "acc_new", name: "备用账户", type: "other", currency: "CNY", owner: "", parent_id: "", archived: false, has_snapshots: false, has_children: false, child_count: 0 },
+      { id: "acc_broker", name: "示例证券账户", type: "stock", currency: "CNY", owner: "示例成员A", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 3 },
+      { id: "acc_fund", name: "示例基金账户", type: "fund", currency: "CNY", owner: "示例成员A", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 3 },
+      { id: "acc_cash", name: "示例现金", type: "cash", currency: "CNY", owner: "示例成员B", parent_id: "", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(42800), latest_as_of: "2026-10-18" },
+      { id: "acc_archive", name: "示例旧账户", type: "other", currency: "CNY", owner: "示例成员A", parent_id: "", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
+      { id: "acc_new", name: "示例备用账户", type: "other", currency: "CNY", owner: "", parent_id: "", archived: false, has_snapshots: false, has_children: false, child_count: 0 },
     ],
     portfolios: [
-      { id: "acc_growth", name: "长期成长组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(386520.4), latest_as_of: "2026-10-18" },
-      { id: "acc_dividend", name: "红利组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(612340.6), latest_as_of: "2026-10-18" },
-      { id: "acc_watch", name: "旧观察仓", type: "stock", currency: "CNY", owner: "", parent_id: "acc_broker", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
-      { id: "acc_fund_core", name: "核心基金组合", type: "fund", currency: "CNY", owner: "林澈", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
-      { id: "acc_unknown", name: "待核对组合", type: "fund", currency: "CNY", owner: "", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0 },
-      { id: "acc_big", name: "大额测试组合", type: "mixed", currency: "CNY", owner: "周岚", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(12345678.9), latest_as_of: "2026-10-17" },
+      { id: "acc_growth", name: "示例组合A", type: "stock", currency: "CNY", owner: "示例成员A", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(386520.4), latest_as_of: "2026-10-18" },
+      { id: "acc_dividend", name: "示例组合B", type: "stock", currency: "CNY", owner: "示例成员A", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(612340.6), latest_as_of: "2026-10-18" },
+      { id: "acc_watch", name: "示例旧组合", type: "stock", currency: "CNY", owner: "示例成员A", parent_id: "acc_broker", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
+      { id: "acc_fund_core", name: "示例组合C", type: "fund", currency: "CNY", owner: "示例成员A", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
+      { id: "acc_unknown", name: "示例待核对组合", type: "fund", currency: "CNY", owner: "示例成员A", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: 0, latest_as_of: "2026-10-18" },
+      { id: "acc_big", name: "示例大额组合", type: "mixed", currency: "CNY", owner: "示例成员A", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(12345678.9), latest_as_of: "2026-10-17" },
     ],
   };
 
   function effectiveAccountTree() {
     const owners = new Map(accountTree.accounts.map((account) => [account.id, account.owner]));
+    const portfolios = accountTree.portfolios.map((portfolio) => ({
+      ...portfolio,
+      owner: owners.get(portfolio.parent_id) || "",
+    }));
+    const accounts = accountTree.accounts.map((account) => {
+      const children = portfolios.filter((portfolio) => portfolio.parent_id === account.id && portfolio.latest_value_cents != null);
+      if (!children.length) return account;
+      return {
+        ...account,
+        latest_value_cents: children.reduce((total, portfolio) => total + portfolio.latest_value_cents, 0),
+        latest_as_of: children.reduce((latest, portfolio) => portfolio.latest_as_of > latest ? portfolio.latest_as_of : latest, ""),
+      };
+    });
     return {
       ...accountTree,
-      portfolios: accountTree.portfolios.map((portfolio) => ({
-        ...portfolio,
-        owner: owners.get(portfolio.parent_id) || "",
-      })),
+      accounts,
+      portfolios,
     };
   }
 
@@ -179,7 +190,7 @@
     {
       snapshot_id: "snap_preview_01",
       account_id: "acc_growth",
-      account_name: "海岬证券 / 长期成长组合",
+      account_name: "示例证券账户 / 示例组合A",
       as_of: "2026-10-18",
       source: "efund_import",
       anomalies: [
@@ -202,7 +213,7 @@
     {
       snapshot_id: "snap_preview_02",
       account_id: "acc_fund_core",
-      account_name: "基金E账户 / 核心基金组合",
+      account_name: "示例基金账户 / 示例组合C",
       as_of: "2026-10-18",
       source: "mcp",
       anomalies: [
@@ -219,7 +230,7 @@
     {
       snapshot_id: "snap_preview_03",
       account_id: "acc_cash",
-      account_name: "日常现金",
+      account_name: "示例现金",
       as_of: "2026-10-17",
       source: "manual",
       anomalies: [{ code: "negative", message: "现金余额为负数" }],
@@ -240,7 +251,7 @@
       fund_code: code,
       fund_name: name,
       fund_account: "F" + code,
-      sales_org: "云帆基金销售有限公司",
+      sales_org: "示例销售机构A",
       trade_account: "90000001",
       quantity,
       share_date: "2026-10-18",
@@ -254,27 +265,27 @@
   }
 
   const importAccounts = [
-    { id: "fund_top", name: "基金E账户", type: "fund", currency: "CNY", has_children: true },
-    { id: "fund_core", name: "核心基金组合", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "基金E账户", has_children: false },
-    { id: "fund_pending", name: "稳健配置组合", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "基金E账户", has_children: false },
-    { id: "fund_done", name: "旧配置组合", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "基金E账户", has_children: false },
-    { id: "fund_legacy", name: "旧日基金账户", type: "fund", currency: "CNY", has_children: false },
-    { id: "fund_spare", name: "备用基金账户", type: "fund", currency: "CNY", has_children: false },
-    { id: "mixed_top", name: "混合策略账户", type: "mixed", currency: "CNY", has_children: false },
+    { id: "fund_top", name: "示例基金账户", type: "fund", currency: "CNY", has_children: true, has_snapshots: false },
+    { id: "fund_core", name: "示例组合C", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false, has_snapshots: true },
+    { id: "fund_pending", name: "示例组合D", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false, has_snapshots: true },
+    { id: "fund_done", name: "示例组合E", type: "fund", currency: "CNY", parent_id: "fund_top", parent_name: "示例基金账户", has_children: false, has_snapshots: true },
+    { id: "fund_legacy", name: "示例旧基金账户", type: "fund", currency: "CNY", has_children: false, has_snapshots: true },
+    { id: "fund_spare", name: "示例备用基金账户", type: "fund", currency: "CNY", has_children: false, has_snapshots: true },
+    { id: "mixed_top", name: "示例混合账户", type: "mixed", currency: "CNY", has_children: false, has_snapshots: false },
   ];
 
   const previewGroups = [
     {
-      sales_org: "云帆基金销售有限公司",
+      sales_org: "示例销售机构A",
       trade_account: "90000001",
-      name: "林澈",
+      name: "示例成员A",
       mode: "existing",
       account_id: "fund_core",
-      account_name: "核心基金组合",
+      account_name: "示例组合C",
       top_account_id: "fund_top",
-      top_account_name: "基金E账户",
+      top_account_name: "示例基金账户",
       portfolio_id: "fund_core",
-      portfolio_name: "核心基金组合",
+      portfolio_name: "示例组合C",
       direct: false,
       ignored: false,
       fund_count: 3,
@@ -287,14 +298,14 @@
       ],
     },
     {
-      sales_org: "青禾基金",
+      sales_org: "示例销售机构B",
       trade_account: "90000002",
-      name: "林澈",
+      name: "示例成员A",
       mode: "existing",
       account_id: "fund_spare",
-      account_name: "备用基金账户",
+      account_name: "示例备用基金账户",
       top_account_id: "fund_spare",
-      top_account_name: "备用基金账户",
+      top_account_name: "示例备用基金账户",
       direct: true,
       ignored: false,
       fund_count: 2,
@@ -306,16 +317,16 @@
       ],
     },
     {
-      sales_org: "北岸基金",
+      sales_org: "示例销售机构C",
       trade_account: "90000003",
-      name: "周岚",
+      name: "示例成员B",
       mode: "existing",
       account_id: "fund_pending",
-      account_name: "稳健配置组合",
+      account_name: "示例组合D",
       top_account_id: "fund_top",
-      top_account_name: "基金E账户",
+      top_account_name: "示例基金账户",
       portfolio_id: "fund_pending",
-      portfolio_name: "稳健配置组合",
+      portfolio_name: "示例组合D",
       direct: false,
       ignored: false,
       fund_count: 2,
@@ -327,16 +338,16 @@
       ],
     },
     {
-      sales_org: "旧日平台",
+      sales_org: "示例销售机构D",
       trade_account: "90000004",
-      name: "周岚",
+      name: "示例成员B",
       mode: "existing",
       account_id: "fund_done",
-      account_name: "旧配置组合",
+      account_name: "示例组合E",
       top_account_id: "fund_top",
-      top_account_name: "基金E账户",
+      top_account_name: "示例基金账户",
       portfolio_id: "fund_done",
-      portfolio_name: "旧配置组合",
+      portfolio_name: "示例组合E",
       direct: false,
       ignored: false,
       fund_count: 1,
@@ -347,9 +358,9 @@
       ],
     },
     {
-      sales_org: "远山基金",
+      sales_org: "示例销售机构E",
       trade_account: "90000005",
-      name: "林澈",
+      name: "示例成员A",
       mode: "unmapped",
       ignored: false,
       issue: "未选择账户",
@@ -361,9 +372,9 @@
       ],
     },
     {
-      sales_org: "测试平台",
+      sales_org: "示例销售机构F",
       trade_account: "90000006",
-      name: "林澈",
+      name: "示例成员A",
       mode: "ignore",
       ignored: true,
       fund_count: 1,
@@ -374,19 +385,19 @@
       ],
     },
     {
-      sales_org: "旧日券商",
+      sales_org: "示例销售机构G",
       trade_account: "90000007",
-      name: "林澈",
+      name: "示例成员A",
       mode: "existing",
       account_id: "fund_legacy",
-      account_name: "旧日基金账户",
+      account_name: "示例旧基金账户",
       direct: true,
       ignored: false,
       fund_count: 1,
       market_value_cents: w(31500),
-      top_funds: ["虚构旧日混合"],
+      top_funds: ["虚构旧平台混合"],
       holdings: [
-        holding(11, "000011", "虚构旧日混合", "21000.00", "1.5000", w(31500)),
+        holding(11, "000011", "虚构旧平台混合", "21000.00", "1.5000", w(31500)),
       ],
     },
   ];
@@ -395,7 +406,7 @@
     {
       key: "id:fund_core",
       account_id: "fund_core",
-      account_name: "核心基金组合",
+      account_name: "示例组合C",
       group_count: 1,
       fund_count: 3,
       market_value_cents: w(68420.55),
@@ -419,7 +430,7 @@
     {
       key: "id:fund_spare",
       account_id: "fund_spare",
-      account_name: "备用基金账户",
+      account_name: "示例备用基金账户",
       group_count: 1,
       fund_count: 2,
       market_value_cents: w(15238),
@@ -442,7 +453,7 @@
     {
       key: "id:fund_pending",
       account_id: "fund_pending",
-      account_name: "稳健配置组合",
+      account_name: "示例组合D",
       group_count: 1,
       fund_count: 2,
       market_value_cents: w(41206.66),
@@ -462,7 +473,7 @@
     {
       key: "id:fund_done",
       account_id: "fund_done",
-      account_name: "旧配置组合",
+      account_name: "示例组合E",
       group_count: 1,
       fund_count: 1,
       market_value_cents: w(22890),
@@ -482,7 +493,7 @@
     {
       key: "id:fund_legacy",
       account_id: "fund_legacy",
-      account_name: "旧日基金账户",
+      account_name: "示例旧基金账户",
       group_count: 1,
       fund_count: 1,
       market_value_cents: w(31500),
@@ -501,21 +512,50 @@
     },
   ];
 
+  const sumBy = (items, pick) => items.reduce((total, item) => total + pick(item), 0);
+  const groupValue = (group) => sumBy(group.holdings, (holding) => holding.market_value_cents);
+  const groupFundCount = (group) => new Set(group.holdings.map((holding) => holding.fund_code)).size;
+
+  for (const group of previewGroups) {
+    group.fund_count = groupFundCount(group);
+    group.market_value_cents = groupValue(group);
+  }
+  for (const target of targets) {
+    const groups = previewGroups.filter((group) => group.mode === "existing" && group.account_id === target.account_id);
+    target.group_count = groups.length;
+    target.fund_count = new Set(groups.flatMap((group) => group.holdings.map((holding) => holding.fund_code))).size;
+    target.market_value_cents = sumBy(groups, groupValue);
+  }
+
+  function syncPreviewTotals(preview) {
+    const blocking = preview.warnings.filter((warning) => warning.severity === "blocks_write");
+    preview.file_total_cents = sumBy(preview.groups, groupValue);
+    preview.ignored_total_cents = sumBy(preview.groups.filter((group) => group.ignored), groupValue);
+    preview.unmapped_total_cents = sumBy(preview.groups.filter((group) => group.mode === "unmapped"), groupValue);
+    preview.total_market_value_cents = sumBy(preview.targets, (target) => target.market_value_cents);
+    preview.total_holding_count = sumBy(preview.targets, (target) => target.fund_count);
+    if (blocking.length) {
+      preview.can_import = false;
+      preview.blocked_by_data = true;
+      preview.block_reason = `文件校验未通过，禁止写入：${blocking.map((warning) => warning.message).join("；")}`;
+    }
+    return preview;
+  }
+
   const preview = {
     token: "preview-token",
     file_name: "持有信息-2026-10-18.xlsx",
     meta: {
       share_date: "2026-10-18",
       print_time: "2026-10-18 20:16:42",
-      total_records: 10,
-      actual_rows: 10,
+      total_records: sumBy(previewGroups, (group) => group.holdings.length),
+      actual_rows: sumBy(previewGroups, (group) => group.holdings.length),
       records_match: true,
       nav_date_mismatch_funds: 1,
     },
     warnings: [
       { code: "nav_date_mismatch", severity: "info", message: "1 只 QDII 基金净值日期与份额日期不一致" },
-      { code: "value_mismatch", severity: "warning", message: "云帆基金销售有限公司合计金额相差 0.01 元" },
-      { code: "record_count_mismatch", severity: "blocks_write", message: "文件记录数与实际行数不一致，写入时将被阻止" },
+      { code: "value_mismatch", severity: "warning", message: "示例销售机构A合计金额相差 0.01 元" },
     ],
     groups: previewGroups,
     targets,
@@ -523,13 +563,14 @@
     can_import: true,
     block_reason: "",
     blocked_by_data: false,
-    total_market_value_cents: w(179255.21),
-    file_total_cents: w(158865.75),
-    ignored_total_cents: w(1234),
-    unmapped_total_cents: w(9876.54),
+    total_market_value_cents: 0,
+    file_total_cents: 0,
+    ignored_total_cents: 0,
+    unmapped_total_cents: 0,
     mapping_error: "",
-    total_holding_count: 8,
+    total_holding_count: 0,
   };
+  syncPreviewTotals(preview);
 
   const donePreview = JSON.parse(JSON.stringify(preview));
   donePreview.groups[4] = {
@@ -547,6 +588,7 @@
         ? "efund_import / 待确认"
         : "efund_import / 已确认",
   }));
+  syncPreviewTotals(donePreview);
   donePreview.can_import = false;
 
   let importFinished = false;
@@ -561,21 +603,21 @@
       : target);
     copy.can_import = true;
     copy.block_reason = "";
-    return copy;
+    return syncPreviewTotals(copy);
   }
 
   const importResult = {
-    summary: "本次导入：1 组生效，2 组待确认，2 组之前已导入",
+    summary: "本次导入：1 组生效，1 组待确认，3 组之前已导入",
     applied: 1,
-    pending: 2,
-    skipped: 2,
+    pending: 1,
+    skipped: 3,
     failed: 0,
     results: [
-      { account_id: "fund_core", account_name: "核心基金组合", status: "applied", snapshot_id: "snap_mock_01", market_value_cents: w(68420.55) },
-      { account_id: "fund_spare", account_name: "备用基金账户", status: "pending", message: "进入待确认", anomalies: ["账户总市值相对上次变化 32.4%，超过阈值 20%"], market_value_cents: w(15238) },
-      { account_id: "fund_pending", account_name: "稳健配置组合", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 待确认 快照", existing_snapshot_id: "snap_pending_01", existing_snapshot_source: "efund_import", market_value_cents: w(41206.66) },
-      { account_id: "fund_done", account_name: "旧配置组合", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 已确认 快照", existing_snapshot_id: "snap_done_01", existing_snapshot_source: "efund_import", market_value_cents: w(22890) },
-      { account_id: "fund_legacy", account_name: "旧日基金账户", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 mcp / 已确认 快照", existing_snapshot_id: "snap_legacy_01", existing_snapshot_source: "mcp", market_value_cents: w(31500) },
+      { account_id: "fund_core", account_name: "示例组合C", status: "applied", snapshot_id: "snap_mock_01", market_value_cents: w(68420.55) },
+      { account_id: "fund_spare", account_name: "示例备用基金账户", status: "pending", message: "进入待确认", anomalies: ["账户总市值相对上次变化 32.4%，超过阈值 20%"], market_value_cents: w(15238) },
+      { account_id: "fund_pending", account_name: "示例组合D", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 待确认 快照", existing_snapshot_id: "snap_pending_01", existing_snapshot_source: "efund_import", market_value_cents: w(41206.66) },
+      { account_id: "fund_done", account_name: "示例组合E", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 已确认 快照", existing_snapshot_id: "snap_done_01", existing_snapshot_source: "efund_import", market_value_cents: w(22890) },
+      { account_id: "fund_legacy", account_name: "示例旧基金账户", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 mcp / 已确认 快照", existing_snapshot_id: "snap_legacy_01", existing_snapshot_source: "mcp", market_value_cents: w(31500) },
     ],
   };
 

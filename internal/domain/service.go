@@ -98,7 +98,7 @@ func (s *Service) Submit(ctx context.Context, in SubmitInput) (*SubmitResult, er
 	if source == SourceLoan || !source.Valid() {
 		return nil, fmt.Errorf("source %q must be one of screenshot, mcp, statement, manual, efund_import", source)
 	}
-	account, err := s.repo.GetAccount(ctx, in.AccountID)
+	account, err := s.writableAccount(ctx, in.AccountID, "写入")
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (s *Service) confirm(ctx context.Context, snapshotID string, allowAnomalies
 	if snapshot.Status != StatusPending {
 		return nil, fmt.Errorf("snapshot %s is %s, only pending snapshots can be confirmed", snapshotID, snapshot.Status)
 	}
-	account, err := s.repo.GetAccount(ctx, snapshot.AccountID)
+	account, err := s.writableAccount(ctx, snapshot.AccountID, "确认")
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +282,8 @@ type UpsertAccountInput struct {
 func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Account, error) {
 	now := s.now().UTC()
 	if in.ID == "" {
-		if strings.TrimSpace(in.Name) == "" {
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
 			return nil, errors.New("name is required when creating an account")
 		}
 		if in.ParentID != "" {
@@ -306,12 +307,8 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 			if has {
 				return nil, errors.New("已有快照的账户不能作为上级账户")
 			}
-			if in.Type == "" {
-				in.Type = parent.Type
-			}
-			if in.Currency == "" {
-				in.Currency = parent.Currency
-			}
+			in.Type = parent.Type
+			in.Currency = parent.Currency
 			owner := parent.Owner
 			in.Owner = &owner
 			if in.Platform == "" {
@@ -325,13 +322,18 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		if currency == "" {
 			currency = "CNY"
 		}
+		if in.Archived == nil || !*in.Archived {
+			if err := s.ensureUniqueName(ctx, in.ParentID, name, ""); err != nil {
+				return nil, err
+			}
+		}
 		owner := ""
 		if in.Owner != nil {
 			owner = *in.Owner
 		}
 		account := &Account{
 			ID:        newID("acc"),
-			Name:      in.Name,
+			Name:      name,
 			Platform:  in.Platform,
 			Type:      in.Type,
 			Currency:  currency,
@@ -353,20 +355,64 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 	if err != nil {
 		return nil, err
 	}
+	wasArchived := account.Archived
+	wasName := account.Name
+	cascade := false
 	if in.Name != "" {
-		account.Name = in.Name
+		name := strings.TrimSpace(in.Name)
+		if name == "" {
+			return nil, errors.New("名称不能为空")
+		}
+		account.Name = name
 	}
 	if in.Platform != "" {
 		account.Platform = in.Platform
 	}
-	if in.Type != "" {
-		if !in.Type.Valid() {
-			return nil, fmt.Errorf("type %q must be one of cash, fund, stock, mixed, liability, other", in.Type)
+	if account.ParentID != "" {
+		// A portfolio always mirrors its parent; individual type/currency
+		// changes are ignored, like owner changes.
+		parent, err := s.repo.GetAccount(ctx, account.ParentID)
+		if err != nil {
+			return nil, err
 		}
-		account.Type = in.Type
-	}
-	if in.Currency != "" {
-		account.Currency = strings.ToUpper(in.Currency)
+		if parent.Archived {
+			return nil, errors.New("上级账户已归档，请先恢复后再修改组合")
+		}
+		account.Type = parent.Type
+		account.Currency = parent.Currency
+	} else {
+		newType := account.Type
+		if in.Type != "" {
+			if !in.Type.Valid() {
+				return nil, fmt.Errorf("type %q must be one of cash, fund, stock, mixed, liability, other", in.Type)
+			}
+			newType = in.Type
+		}
+		newCurrency := account.Currency
+		if in.Currency != "" {
+			newCurrency = strings.ToUpper(in.Currency)
+		}
+		typeChanged := newType != account.Type
+		currencyChanged := newCurrency != account.Currency
+		if typeChanged || currencyChanged {
+			hasChildren, err := s.repo.HasChildren(ctx, account.ID)
+			if err != nil {
+				return nil, err
+			}
+			if hasChildren {
+				if typeChanged && newType == AccountLiability {
+					return nil, errors.New("负债账户不能作为上级账户")
+				}
+				if currencyChanged {
+					if _, err := s.conflictingChildSnapshotCurrency(ctx, account.ID, newCurrency); err != nil {
+						return nil, err
+					}
+				}
+			}
+			account.Type = newType
+			account.Currency = newCurrency
+			cascade = typeChanged || currencyChanged
+		}
 	}
 	ownerChanged := in.Owner != nil && account.ParentID == ""
 	if ownerChanged {
@@ -394,11 +440,17 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		}
 		account.Archived = *in.Archived
 	}
+	nameChanged := in.Name != "" && account.Name != wasName
+	if !account.Archived && (nameChanged || (wasArchived && in.Archived != nil && !*in.Archived)) {
+		if err := s.ensureUniqueName(ctx, account.ParentID, account.Name, account.ID); err != nil {
+			return nil, err
+		}
+	}
 	account.UpdatedAt = now
 	if err := s.repo.UpsertAccount(ctx, account); err != nil {
 		return nil, err
 	}
-	if ownerChanged {
+	if ownerChanged || cascade {
 		accounts, err := s.repo.ListAccounts(ctx)
 		if err != nil {
 			return nil, err
@@ -407,7 +459,13 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 			if accounts[i].ParentID != account.ID {
 				continue
 			}
-			accounts[i].Owner = account.Owner
+			if ownerChanged {
+				accounts[i].Owner = account.Owner
+			}
+			if cascade {
+				accounts[i].Type = account.Type
+				accounts[i].Currency = account.Currency
+			}
 			accounts[i].UpdatedAt = now
 			if err := s.repo.UpsertAccount(ctx, &accounts[i]); err != nil {
 				return nil, err
@@ -415,6 +473,74 @@ func (s *Service) UpsertAccount(ctx context.Context, in UpsertAccountInput) (*Ac
 		}
 	}
 	return account, nil
+}
+
+// writableAccount rejects writes to archived accounts and to portfolios whose
+// parent account is archived.
+func (s *Service) writableAccount(ctx context.Context, id, action string) (*Account, error) {
+	account, err := s.repo.GetAccount(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if account.Archived {
+		return nil, fmt.Errorf("账户已归档，请先恢复后再%s", action)
+	}
+	if account.ParentID != "" {
+		parent, err := s.repo.GetAccount(ctx, account.ParentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent.Archived {
+			return nil, fmt.Errorf("上级账户已归档，请先恢复后再%s", action)
+		}
+	}
+	return account, nil
+}
+
+func (s *Service) ensureUniqueName(ctx context.Context, parentID, name, excludeID string) error {
+	accounts, err := s.repo.ListAccounts(ctx)
+	if err != nil {
+		return err
+	}
+	trimmed := strings.TrimSpace(name)
+	for _, account := range accounts {
+		if account.ID == excludeID || account.Archived || account.ParentID != parentID {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(account.Name), trimmed) {
+			if parentID == "" {
+				return errors.New("同名账户已存在")
+			}
+			return errors.New("该账户下已有同名组合")
+		}
+	}
+	return nil
+}
+
+func (s *Service) conflictingChildSnapshotCurrency(ctx context.Context, parentID, currency string) (*Snapshot, error) {
+	accounts, err := s.repo.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := s.repo.ListPending(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, account := range accounts {
+		if account.ParentID != parentID {
+			continue
+		}
+		confirmed, err := s.repo.ListConfirmed(ctx, account.ID, "", "")
+		if err != nil {
+			return nil, err
+		}
+		for _, snapshot := range append(confirmed, pending...) {
+			if snapshot.AccountID == account.ID && snapshot.Currency != currency {
+				return snapshot, fmt.Errorf("组合「%s」已有 %s 币种的快照，不能把上级账户币种改为 %s", account.Name, snapshot.Currency, currency)
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (s *Service) audit(ctx context.Context, action string, snapshot *Snapshot, detail string) error {

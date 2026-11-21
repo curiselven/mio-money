@@ -214,3 +214,56 @@ func TestMCPRejectsDesktopOnlySources(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPUpsertPortfolioFollowsParent(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open("file:mcp_portfolio?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	server := mioserver.NewServer(domain.NewService(st, 0.2))
+	serverTransport, clientTransport := sdk.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, serverTransport, nil); err != nil {
+		t.Fatal(err)
+	}
+	session, err := sdk.NewClient(&sdk.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	var parent domain.Account
+	call(t, session, "upsert_account", map[string]any{
+		"name": "示例账户", "type": "stock", "currency": "USD",
+	}, &parent)
+	var child domain.Account
+	call(t, session, "upsert_account", map[string]any{
+		"name": "示例组合", "parent_id": parent.ID, "type": "fund", "currency": "CNY",
+	}, &child)
+	if child.Type != domain.AccountStock || child.Currency != "USD" {
+		t.Fatalf("mcp portfolio create = %s/%s", child.Type, child.Currency)
+	}
+	var ignored domain.Account
+	call(t, session, "upsert_account", map[string]any{
+		"id": child.ID, "type": "cash", "currency": "EUR",
+	}, &ignored)
+	if ignored.Type != domain.AccountStock || ignored.Currency != "USD" {
+		t.Fatalf("mcp portfolio update = %s/%s", ignored.Type, ignored.Currency)
+	}
+	call(t, session, "upsert_account", map[string]any{
+		"id": parent.ID, "type": "mixed", "currency": "EUR",
+	}, &parent)
+	var list mioserver.ListAccountsOutput
+	call(t, session, "list_accounts", map[string]any{}, &list)
+	for _, account := range list.Accounts {
+		if account.ID != child.ID {
+			continue
+		}
+		if account.Type != domain.AccountMixed || account.Currency != "EUR" {
+			t.Fatalf("mcp portfolio after parent change = %s/%s", account.Type, account.Currency)
+		}
+		return
+	}
+	t.Fatal("portfolio missing from list_accounts")
+}

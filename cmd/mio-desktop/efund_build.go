@@ -11,18 +11,10 @@ import (
 	"github.com/curiselven/mio-money/internal/importer/efund"
 )
 
-type efundLeaf struct {
-	leaf   domain.Account
-	top    domain.Account
-	direct bool
-	issue  string
-}
-
 func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping, accounts []domain.Account) (*EfundPreview, error) {
 	ctx := context.Background()
 	byID := map[string]domain.Account{}
 	children := map[string][]domain.Account{}
-	byName := map[string][]domain.Account{}
 	options := []EfundAccountOption{}
 	parentName := map[string]string{}
 	for _, account := range accounts {
@@ -35,16 +27,18 @@ func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping
 		if account.ParentID != "" {
 			parentName[account.ID] = byID[account.ParentID].Name
 		}
-		if account.Archived || !importableAccountType(account.Type) {
+		if account.Archived || !efund.ImportableAccountType(account.Type) {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(account.Name))
-		byName[key] = append(byName[key], account)
+		hasSnapshots, err := s.st.HasAnySnapshot(ctx, account.ID)
+		if err != nil {
+			return nil, err
+		}
 		options = append(options, EfundAccountOption{
 			ID: account.ID, Name: account.Name, Platform: account.Platform,
 			Type: account.Type, Currency: account.Currency,
 			ParentID: account.ParentID, ParentName: parentName[account.ID],
-			HasChildren: len(children[account.ID]) > 0,
+			HasChildren: len(children[account.ID]) > 0, HasSnapshots: hasSnapshots,
 		})
 	}
 	sort.SliceStable(options, func(i, j int) bool {
@@ -98,36 +92,36 @@ func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping
 			unresolved++
 			preview.UnmappedTotalCents += value
 		default:
-			resolved := resolveEfundLeaf(entry, byID, children, byName)
-			if resolved.issue != "" {
-				view.Issue = resolved.issue
+			resolved := efund.ResolveTarget(entry, accounts)
+			if resolved.Issue != "" {
+				view.Issue = resolved.Issue
 				unresolved++
 				preview.UnmappedTotalCents += value
 				preview.Warnings = append(preview.Warnings, efund.Warning{
 					Code: "mapping_target_invalid", Severity: efund.SeverityWarning,
-					Message: group.salesOrg + " / " + group.tradeAccount + "：" + resolved.issue,
+					Message: group.salesOrg + " / " + group.tradeAccount + "：" + resolved.Issue,
 				})
 				break
 			}
 			view.Mode = efundModeExisting
-			view.AccountID = resolved.leaf.ID
-			view.AccountName = resolved.leaf.Name
-			view.TopAccountID = resolved.top.ID
-			view.TopAccountName = resolved.top.Name
+			view.AccountID = resolved.Leaf.ID
+			view.AccountName = resolved.Leaf.Name
+			view.TopAccountID = resolved.Top.ID
+			view.TopAccountName = resolved.Top.Name
 			view.PortfolioID = ""
 			view.PortfolioName = ""
-			view.Direct = resolved.direct
-			if resolved.direct {
-				view.Name = resolved.top.Name
+			view.Direct = resolved.Direct
+			if resolved.Direct {
+				view.Name = resolved.Top.Name
 			} else {
-				view.PortfolioID = resolved.leaf.ID
-				view.PortfolioName = resolved.leaf.Name
-				view.Name = resolved.top.Name + " · " + resolved.leaf.Name
+				view.PortfolioID = resolved.Leaf.ID
+				view.PortfolioName = resolved.Leaf.Name
+				view.Name = resolved.Top.Name + " · " + resolved.Leaf.Name
 			}
-			targetKey := "id:" + resolved.leaf.ID
+			targetKey := "id:" + resolved.Leaf.ID
 			target := targets[targetKey]
 			if target == nil {
-				target = &efundTarget{accountID: resolved.leaf.ID, accountName: view.Name}
+				target = &efundTarget{accountID: resolved.Leaf.ID, accountName: view.Name}
 				targets[targetKey] = target
 				targetOrder = append(targetOrder, targetKey)
 			}
@@ -194,49 +188,7 @@ func (s *EfundService) buildPreview(parsed *efund.Result, mapping *efund.Mapping
 	return preview, nil
 }
 
-func resolveEfundLeaf(entry efund.MappingEntry, byID map[string]domain.Account, children map[string][]domain.Account, byName map[string][]domain.Account) efundLeaf {
-	if entry.AccountID != "" {
-		return resolveEfundLeafID(entry.AccountID, byID, children)
-	}
-	matches := byName[strings.ToLower(strings.TrimSpace(entry.Account))]
-	importable := make([]domain.Account, 0, len(matches))
-	for _, account := range matches {
-		if len(children[account.ID]) == 0 {
-			importable = append(importable, account)
-		}
-	}
-	switch len(importable) {
-	case 0:
-		return efundLeaf{issue: "旧映射找不到可导入的账户或组合，请重新选择"}
-	case 1:
-		return resolveEfundLeafID(importable[0].ID, byID, children)
-	default:
-		return efundLeaf{issue: "存在多个同名账户，请按账户 ID 重新选择"}
-	}
-}
-
-func resolveEfundLeafID(id string, byID map[string]domain.Account, children map[string][]domain.Account) efundLeaf {
-	leaf, ok := byID[id]
-	if !ok || leaf.Archived {
-		return efundLeaf{issue: "目标账户不存在或已归档"}
-	}
-	if !importableAccountType(leaf.Type) {
-		return efundLeaf{issue: "目标账户类型必须是 fund 或 mixed"}
-	}
-	if len(children[leaf.ID]) > 0 {
-		return efundLeaf{issue: "该账户下有组合，不能直接导入；请选择具体组合"}
-	}
-	if leaf.ParentID == "" {
-		return efundLeaf{leaf: leaf, top: leaf, direct: true}
-	}
-	top, ok := byID[leaf.ParentID]
-	if !ok || top.Archived {
-		return efundLeaf{issue: "组合的上级账户不存在或已归档"}
-	}
-	return efundLeaf{leaf: leaf, top: top}
-}
-
-func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efund.Mapping, accounts []domain.Account, selection EfundSelection) ([]domain.Account, error) {
+func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efund.Mapping, accounts []domain.Account, selection EfundSelection, created *[]domain.Account) ([]domain.Account, error) {
 	key := efund.MappingKey(selection.SalesOrg, selection.TradeAccount)
 	entry := findMappingEntry(mapping, key)
 	if entry == nil {
@@ -259,12 +211,7 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 		return accounts, fmt.Errorf("未知映射模式：%s", selection.Mode)
 	}
 
-	created := []domain.Account{}
 	fail := func(err error) ([]domain.Account, error) {
-		for i := len(created) - 1; i >= 0; i-- {
-			archived := true
-			_, _ = svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: created[i].ID, Archived: &archived})
-		}
 		return accounts, err
 	}
 	var top domain.Account
@@ -279,7 +226,7 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 		if !found || top.ParentID != "" {
 			return fail(errors.New("请选择顶层账户"))
 		}
-		if !importableAccountType(top.Type) {
+		if !efund.ImportableAccountType(top.Type) {
 			return fail(errors.New("目标账户类型必须是 fund 或 mixed"))
 		}
 	} else {
@@ -287,20 +234,29 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 		if name == "" {
 			return fail(errors.New("请输入新账户名称"))
 		}
-		for _, account := range accounts {
+		found := false
+		for _, account := range *created {
 			if !account.Archived && account.ParentID == "" && strings.EqualFold(strings.TrimSpace(account.Name), name) {
-				return fail(fmt.Errorf("账户名「%s」已存在，请选择已有账户", name))
+				top, found = account, true
+				break
 			}
 		}
-		account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
-			Name: name, Type: domain.AccountFund, Currency: "CNY",
-		})
-		if err != nil {
-			return fail(err)
+		if !found {
+			for _, account := range accounts {
+				if !account.Archived && account.ParentID == "" && strings.EqualFold(strings.TrimSpace(account.Name), name) {
+					return fail(fmt.Errorf("账户名「%s」已存在，请选择已有账户", name))
+				}
+			}
+			account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
+				Name: name, Type: domain.AccountFund, Currency: "CNY",
+			})
+			if err != nil {
+				return fail(err)
+			}
+			top = *account
+			*created = append(*created, *account)
+			accounts = append(accounts, *account)
 		}
-		top = *account
-		created = append(created, *account)
-		accounts = append(accounts, *account)
 	}
 
 	var leaf domain.Account
@@ -313,7 +269,7 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 				break
 			}
 		}
-		if !found || !importableAccountType(leaf.Type) {
+		if !found || !efund.ImportableAccountType(leaf.Type) {
 			return fail(errors.New("请选择该账户下可导入的组合"))
 		}
 	case selection.Direct:
@@ -328,20 +284,29 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 		if name == "" {
 			return fail(errors.New("请输入组合名称"))
 		}
-		for _, account := range accounts {
+		found := false
+		for _, account := range *created {
 			if account.ParentID == top.ID && !account.Archived && strings.EqualFold(strings.TrimSpace(account.Name), name) {
-				return fail(fmt.Errorf("组合「%s」已存在，请选择已有组合", name))
+				leaf, found = account, true
+				break
 			}
 		}
-		child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
-			Name: name, ParentID: top.ID,
-		})
-		if err != nil {
-			return fail(err)
+		if !found {
+			for _, account := range accounts {
+				if account.ParentID == top.ID && !account.Archived && strings.EqualFold(strings.TrimSpace(account.Name), name) {
+					return fail(fmt.Errorf("组合「%s」已存在，请选择已有组合", name))
+				}
+			}
+			child, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
+				Name: name, ParentID: top.ID,
+			})
+			if err != nil {
+				return fail(err)
+			}
+			leaf = *child
+			*created = append(*created, *child)
+			accounts = append(accounts, *child)
 		}
-		leaf = *child
-		created = append(created, *child)
-		accounts = append(accounts, *child)
 	}
 	entry.AccountID = leaf.ID
 	entry.Account = leaf.Name
@@ -350,8 +315,11 @@ func applyEfundSelection(ctx context.Context, svc *domain.Service, mapping *efun
 	return accounts, nil
 }
 
-func importableAccountType(t domain.AccountType) bool {
-	return t == domain.AccountFund || t == domain.AccountMixed
+func archiveEfundCreated(ctx context.Context, svc *domain.Service, created []domain.Account) {
+	for i := len(created) - 1; i >= 0; i-- {
+		archived := true
+		_, _ = svc.UpsertAccount(ctx, domain.UpsertAccountInput{ID: created[i].ID, Archived: &archived})
+	}
 }
 
 func carriedCash(previous *domain.Snapshot) *int64 {

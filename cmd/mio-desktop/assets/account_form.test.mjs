@@ -12,12 +12,12 @@ for (const type of ["fund", "mixed", "cash", "stock", "other"]) {
     name: "示例账户",
     type,
     currency: "CNY",
-    owner: "我",
+    owner: "示例成员A",
     platform: "旧平台",
   });
   assert.equal(values.type, type);
   assert.equal(values.name, "示例账户");
-  assert.equal(values.owner, "我");
+  assert.equal(values.owner, "示例成员A");
   assert.equal("platform" in values, false);
 }
 
@@ -28,13 +28,13 @@ const portfolio = accountEditValues({ name: "示例组合", type: "fund", parent
 assert.equal(portfolio.isPortfolio, true);
 
 const accounts = [
-  { id: "acc_parent", owner: "林澈" },
+  { id: "acc_parent", owner: "示例成员A" },
   { id: "acc_empty", owner: " " },
 ];
-assert.equal(accountOwnerNote({ parent_id: "acc_parent" }, accounts), "归属：跟随账户（林澈）");
+assert.equal(accountOwnerNote({ parent_id: "acc_parent" }, accounts), "归属：跟随账户（示例成员A）");
 assert.equal(accountOwnerNote({ parent_id: "acc_empty" }, accounts), "归属：跟随账户（未归属）");
 assert.equal(accountOwnerNote({ parent_id: "acc_missing" }, accounts), "归属：跟随账户（未归属）");
-assert.equal(accountOwnerNote({ owner: "林澈" }, accounts), "");
+assert.equal(accountOwnerNote({ owner: "示例成员A" }, accounts), "");
 
 const portfolios = [
   { id: "p1", parent_id: "acc_a" },

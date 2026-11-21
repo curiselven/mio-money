@@ -46,7 +46,7 @@ func TestPreviewMappingAndDiff(t *testing.T) {
 	}
 	repo := fakeRepo{
 		accounts: []domain.Account{
-			{ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund, Currency: "CNY"},
+			{ID: "acc_changying", Name: "示例组合", Type: domain.AccountFund, Currency: "CNY"},
 		},
 		prev: map[string]*domain.Snapshot{
 			"acc_changying": {
@@ -60,7 +60,7 @@ func TestPreviewMappingAndDiff(t *testing.T) {
 		},
 	}
 	mapping := &Mapping{Mappings: []MappingEntry{
-		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划"},
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合"},
 		{SalesOrg: salesA, TradeAccount: "T0000002", Account: "新组合"},
 	}}
 	preview, err := Build(t.Context(), repo, parsed, mapping)
@@ -87,14 +87,18 @@ func TestPreviewMappingAndDiff(t *testing.T) {
 	if len(diff.ValueChanged) != 1 || diff.ValueChanged[0].Code != "000217" {
 		t.Fatalf("value changed = %+v", diff)
 	}
-	if preview.Groups[1].Status != "new" || !preview.Groups[1].NewAccount {
-		t.Fatalf("new group = %+v", preview.Groups[1])
+	if preview.Groups[1].Status != "invalid" || !preview.Groups[1].Unmapped {
+		t.Fatalf("invalid group = %+v", preview.Groups[1])
 	}
 	if !preview.Groups[2].Unmapped || preview.Groups[2].Name != salesB+"·T0000009·未分组" {
 		t.Fatalf("unmapped group = %+v", preview.Groups[2])
 	}
-	if len(preview.Unmapped) != 1 || preview.Unmapped[0].TradeAccount != "T0000009" ||
-		preview.Unmapped[0].Name != salesB+"·T0000009·未分组" {
+	unmapped := map[string]string{}
+	for _, group := range preview.Unmapped {
+		unmapped[group.TradeAccount] = group.Name
+	}
+	if len(unmapped) != 2 || unmapped["T0000009"] != salesB+"·T0000009·未分组" ||
+		unmapped["T0000002"] != "新组合·映射无效" {
 		t.Fatalf("unmapped = %+v", preview.Unmapped)
 	}
 }
@@ -105,7 +109,7 @@ func TestPreviewAccountIDWinsWithoutNameFallback(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	repo := fakeRepo{accounts: []domain.Account{
-		{ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund, Currency: "CNY"},
+		{ID: "acc_changying", Name: "示例组合", Type: domain.AccountFund, Currency: "CNY"},
 	}}
 
 	matched, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
@@ -119,23 +123,23 @@ func TestPreviewAccountIDWinsWithoutNameFallback(t *testing.T) {
 	}
 
 	missing, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
-		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划", AccountID: "acc_missing"},
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合", AccountID: "acc_missing"},
 	}})
 	if err != nil {
 		t.Fatalf("build missing id: %v", err)
 	}
 	group := missing.Groups[0]
-	if group.Status != "new" || group.AccountID != "" || !group.NewAccount {
+	if group.Status != "invalid" || group.AccountID != "" || !group.Unmapped {
 		t.Fatalf("missing id group = %+v", group)
 	}
 	found := false
 	for _, warning := range missing.Warnings {
-		if warning.Code == "account_id_not_found" && warning.Severity == SeverityWarning {
+		if warning.Code == "mapping_target_invalid" && warning.Severity == SeverityWarning {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("account_id_not_found warning missing: %+v", missing.Warnings)
+		t.Fatalf("mapping_target_invalid warning missing: %+v", missing.Warnings)
 	}
 }
 
@@ -165,7 +169,9 @@ func TestPreviewTotalsByMappingState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	preview, err := Build(t.Context(), nil, parsed, &Mapping{Mappings: []MappingEntry{
+	preview, err := Build(t.Context(), fakeRepo{accounts: []domain.Account{
+		{ID: "acc_new", Name: "示例新组合", Type: domain.AccountFund, Currency: "CNY"},
+	}}, parsed, &Mapping{Mappings: []MappingEntry{
 		{SalesOrg: salesA, TradeAccount: "T0000001", Ignore: true},
 		{SalesOrg: salesA, TradeAccount: "T0000002", Account: "示例新组合"},
 	}})
@@ -186,6 +192,42 @@ func TestPreviewTotalsByMappingState(t *testing.T) {
 	}
 }
 
+func TestPreviewRejectsInvalidTargets(t *testing.T) {
+	parsed, err := Parse(mappingBook(t))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	parent := domain.Account{ID: "acc_parent", Name: "有组合账户", Type: domain.AccountFund, Currency: "CNY"}
+	repo := fakeRepo{accounts: []domain.Account{
+		{ID: "acc_archived", Name: "已归档基金", Type: domain.AccountFund, Currency: "CNY", Archived: true},
+		{ID: "acc_stock", Name: "股票账户", Type: domain.AccountStock, Currency: "CNY"},
+		parent,
+		{ID: "acc_child", Name: "示例组合", Type: domain.AccountFund, Currency: "CNY", ParentID: parent.ID},
+	}}
+	preview, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
+		{SalesOrg: salesA, TradeAccount: "T0000001", AccountID: "acc_archived"},
+		{SalesOrg: salesA, TradeAccount: "T0000002", AccountID: "acc_stock"},
+		{SalesOrg: salesB, TradeAccount: "T0000009", AccountID: "acc_parent"},
+	}})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	invalidWarnings := 0
+	for _, warning := range preview.Warnings {
+		if warning.Code == "mapping_target_invalid" {
+			invalidWarnings++
+		}
+	}
+	for _, group := range preview.Groups {
+		if group.Status != "invalid" || group.AccountID != "" || !group.Unmapped {
+			t.Fatalf("invalid group = %+v", group)
+		}
+	}
+	if invalidWarnings != 3 || preview.MappedTotalCents != 0 || preview.UnmappedTotalCents != preview.FileTotalCents {
+		t.Fatalf("preview totals = %+v, warnings = %d", preview, invalidWarnings)
+	}
+}
+
 func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "mio.db")
@@ -195,7 +237,7 @@ func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	account := &domain.Account{
-		ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund,
+		ID: "acc_changying", Name: "示例组合", Type: domain.AccountFund,
 		Currency: "CNY", CreatedAt: now, UpdatedAt: now,
 	}
 	if err := st.UpsertAccount(t.Context(), account); err != nil {
@@ -223,7 +265,7 @@ func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 		t.Fatalf("open read-only = %v, err=%v", ro, err)
 	}
 	preview, err := Build(t.Context(), ro, parsed, &Mapping{Mappings: []MappingEntry{
-		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划"},
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合"},
 	}})
 	if err != nil {
 		t.Fatalf("build: %v", err)

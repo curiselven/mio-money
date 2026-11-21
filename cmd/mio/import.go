@@ -122,6 +122,9 @@ func runImport(args []string, stdout io.Writer) error {
 	var repo efund.ReadRepo
 	if st != nil {
 		defer st.Close()
+		if err := st.CheckReadOnlySchema(context.Background()); err != nil {
+			return err
+		}
 		repo = st
 	}
 	preview, err := efund.Build(context.Background(), repo, parsed, mapping)

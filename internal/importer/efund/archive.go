@@ -19,7 +19,16 @@ type PasswordProvider func() (string, error)
 const (
 	maxZipEntries = 1000
 	maxXLSXBytes  = 20 << 20
+	// MaxInputBytes caps the xlsx or outer zip before it is read into memory.
+	MaxInputBytes = 32 << 20
 )
+
+func CheckInputSize(size int64) error {
+	if size > MaxInputBytes {
+		return fmt.Errorf("文件过大：%d MB，上限 %d MB", (size+(1<<20)-1)>>20, MaxInputBytes>>20)
+	}
+	return nil
+}
 
 // Parse reads an xlsx, or an outer zip containing exactly one xlsx.
 func Parse(file string) (*Result, error) {
@@ -27,6 +36,13 @@ func Parse(file string) (*Result, error) {
 }
 
 func ParseWithPassword(file string, password PasswordProvider) (*Result, error) {
+	info, err := os.Stat(file)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	if err := CheckInputSize(info.Size()); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
@@ -35,6 +51,9 @@ func ParseWithPassword(file string, password PasswordProvider) (*Result, error) 
 }
 
 func ParseBytes(file string, data []byte, password PasswordProvider) (*Result, error) {
+	if err := CheckInputSize(int64(len(data))); err != nil {
+		return nil, err
+	}
 	if isOuterArchive(file, data) {
 		xlsx, err := extractXLSX(data, password)
 		if err != nil {

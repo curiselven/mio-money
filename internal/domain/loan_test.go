@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/curiselven/mio-money/internal/domain"
@@ -282,5 +283,68 @@ func TestSetLoanTermsRejectsNonLiability(t *testing.T) {
 	}
 	if _, err := svc.Loan(ctx, account.ID, false); err == nil {
 		t.Fatal("expected get_loan to fail without terms")
+	}
+}
+
+func TestLoanWritesRejectArchivedAccount(t *testing.T) {
+	ctx := context.Background()
+	_, st := newTestServiceAndStore(t)
+	svc := domain.NewService(st, 0.2)
+	archived, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{
+		Name: "归档房贷", Type: domain.AccountLiability, Archived: boolp(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetLoanTerms(ctx, domain.SetLoanTermsInput{
+		AccountID: archived.ID, AnchorDate: "2026-01-01", AnchorPrincipalCents: 1_000,
+		AnnualRate: "3.10", Method: domain.LoanEqualInstallment, PaymentDay: 20, RemainingPeriods: 12,
+	}); err == nil || !strings.Contains(err.Error(), "已归档") {
+		t.Fatalf("set terms on archived account error = %v", err)
+	}
+	if _, err := svc.SetLoanHistory(ctx, historyInput(archived.ID)); err == nil ||
+		!strings.Contains(err.Error(), "已归档") {
+		t.Fatalf("set history on archived account error = %v", err)
+	}
+	if loan, err := st.GetLoan(ctx, archived.ID); err != nil || loan != nil {
+		t.Fatalf("loan = %+v, err = %v", loan, err)
+	}
+	if history, err := st.GetLoanHistory(ctx, archived.ID); err != nil || history != nil {
+		t.Fatalf("history = %+v, err = %v", history, err)
+	}
+}
+
+func TestSyncLoansSkipsArchivedAccount(t *testing.T) {
+	ctx := context.Background()
+	_, st := newTestServiceAndStore(t)
+	svc := domain.NewService(st, 0)
+	account, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "测试房贷", Type: domain.AccountLiability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetLoanTerms(ctx, domain.SetLoanTermsInput{
+		AccountID: account.ID, AnchorDate: "2026-01-01", AnchorPrincipalCents: 100_000_000,
+		AnnualRate: "3.10", Method: domain.LoanEqualInstallment, PaymentDay: 20, RemainingPeriods: 240,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.GetAccount(ctx, account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Archived = true
+	if err := st.UpsertAccount(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.SyncLoans(ctx, "2026-03-25", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Created != 0 || len(result.Accounts) != 0 {
+		t.Fatalf("archived loan was synced: %+v", result)
+	}
+	snapshots, err := st.ListConfirmed(ctx, account.ID, "", "")
+	if err != nil || len(snapshots) != 1 {
+		t.Fatalf("snapshots = %d, err = %v", len(snapshots), err)
 	}
 }

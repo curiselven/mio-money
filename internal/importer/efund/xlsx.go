@@ -13,7 +13,7 @@ import (
 
 type sheetRow struct {
 	number int
-	cells  []string
+	cells  map[int]string
 }
 
 type xlsxCell struct {
@@ -33,8 +33,11 @@ type xlsxRun struct {
 }
 
 const (
-	maxSheetRows = 100000
-	maxColumns   = 16384
+	maxSheetRows     = 100000
+	maxColumns       = 16384
+	maxSheetCells    = 100000
+	maxCellTextBytes = 4096
+	maxSharedStrings = 100000
 )
 
 func readSheet(data []byte) ([]sheetRow, error) {
@@ -55,63 +58,152 @@ func readSheet(data []byte) ([]sheetRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read sheet %s: %w", sheetPath, err)
 	}
-	var ws struct {
-		Rows []struct {
-			Number int        `xml:"r,attr"`
-			Cells  []xlsxCell `xml:"c"`
-		} `xml:"sheetData>row"`
-	}
-	if err := xml.Unmarshal(sheetData, &ws); err != nil {
-		return nil, fmt.Errorf("parse sheet: %w", err)
-	}
-	if len(ws.Rows) > maxSheetRows {
-		return nil, fmt.Errorf("sheet 行数过多：%d（上限 %d）", len(ws.Rows), maxSheetRows)
-	}
+	return parseSheet(sheetData, shared)
+}
 
-	rows := make([]sheetRow, 0, len(ws.Rows))
+func parseSheet(data []byte, shared []string) ([]sheetRow, error) {
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	rows := []sheetRow{}
 	lastNumber := 0
-	for _, raw := range ws.Rows {
-		number := raw.Number
-		if number <= lastNumber {
-			number = lastNumber + 1
+	totalCells := 0
+	var current *sheetRow
+	lastCol := -1
+	for {
+		token, err := dec.Token()
+		if err == io.EOF {
+			break
 		}
-		if number > maxSheetRows {
-			return nil, fmt.Errorf("sheet 行号超过 %d", maxSheetRows)
+		if err != nil {
+			return nil, fmt.Errorf("parse sheet: %w", err)
 		}
-		lastNumber = number
-		var cells []string
-		lastCol := -1
-		for _, c := range raw.Cells {
-			col, err := cellColumn(c.Ref)
-			if err != nil {
-				return nil, err
-			}
-			if c.Ref == "" {
-				col = lastCol + 1
-			}
-			if col > lastCol {
-				cells = append(cells, make([]string, col-lastCol)...)
+		switch t := token.(type) {
+		case xml.StartElement:
+			switch {
+			case t.Name.Local == "row" && current == nil:
+				if len(rows) >= maxSheetRows {
+					return nil, fmt.Errorf("sheet 行数过多：%d（上限 %d）", len(rows)+1, maxSheetRows)
+				}
+				number := lastNumber + 1
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "r" {
+						number, err = parseRowNumber(attr.Value, number)
+						if err != nil {
+							return nil, err
+						}
+						break
+					}
+				}
+				if number <= lastNumber {
+					number = lastNumber + 1
+				}
+				if number > maxSheetRows {
+					return nil, fmt.Errorf("sheet 行号超过 %d", maxSheetRows)
+				}
+				lastNumber = number
+				current = &sheetRow{number: number, cells: map[int]string{}}
+				lastCol = -1
+			case t.Name.Local == "c" && current != nil:
+				totalCells++
+				if totalCells > maxSheetCells {
+					return nil, fmt.Errorf("sheet 单元格过多：%d（上限 %d）", totalCells, maxSheetCells)
+				}
+				var cell xlsxCell
+				if err := dec.DecodeElement(&cell, &t); err != nil {
+					return nil, fmt.Errorf("parse sheet: %w", err)
+				}
+				col, err := cellColumn(cell.Ref)
+				if err != nil {
+					return nil, err
+				}
+				if cell.Ref == "" {
+					col = lastCol + 1
+				}
 				lastCol = col
+				value, err := cellText(cell, shared)
+				if err != nil {
+					return nil, err
+				}
+				current.cells[col] = value
 			}
-			value, err := cellText(c, shared)
-			if err != nil {
-				return nil, err
+		case xml.EndElement:
+			if t.Name.Local == "row" && current != nil {
+				rows = append(rows, *current)
+				current = nil
 			}
-			cells[col] = value
 		}
-		rows = append(rows, sheetRow{number: number, cells: cells})
 	}
 	return rows, nil
 }
 
+func readSharedStrings(zr *zip.Reader) ([]string, error) {
+	data, err := readZipFile(zr, "xl/sharedStrings.xml")
+	if err != nil {
+		return nil, nil
+	}
+	dec := xml.NewDecoder(bytes.NewReader(data))
+	out := []string{}
+	for {
+		token, err := dec.Token()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("parse sharedStrings: %w", err)
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Local != "si" {
+			continue
+		}
+		if len(out) >= maxSharedStrings {
+			return nil, fmt.Errorf("sharedStrings 条目过多：%d（上限 %d）", len(out)+1, maxSharedStrings)
+		}
+		var item struct {
+			Text string    `xml:"t"`
+			Runs []xlsxRun `xml:"r"`
+		}
+		if err := dec.DecodeElement(&item, &start); err != nil {
+			return nil, fmt.Errorf("parse sharedStrings: %w", err)
+		}
+		var b strings.Builder
+		b.WriteString(item.Text)
+		for _, run := range item.Runs {
+			b.WriteString(run.Text)
+		}
+		value, err := cellTextValue(b.String())
+		if err != nil {
+			return nil, fmt.Errorf("sharedStrings 第 %d 条：%w", len(out)+1, err)
+		}
+		out = append(out, value)
+	}
+	return out, nil
+}
+
+func parseRowNumber(value string, fallback int) (int, error) {
+	if value == "" {
+		return fallback, nil
+	}
+	if strings.ContainsAny(value, ".eE+-") {
+		return 0, fmt.Errorf("xlsx: 行号不支持科学计数或小数：%q", value)
+	}
+	number, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("xlsx: 行号无效或过大：%q", value)
+	}
+	if number <= 0 {
+		return 0, fmt.Errorf("xlsx: 行号必须为正整数：%q", value)
+	}
+	return number, nil
+}
+
 func cellText(c xlsxCell, shared []string) (string, error) {
+	var value string
 	switch c.Type {
 	case "s":
 		idx, err := strconv.Atoi(strings.TrimSpace(c.Value))
 		if err != nil || idx < 0 || idx >= len(shared) {
 			return "", fmt.Errorf("xlsx: bad shared string index %q", c.Value)
 		}
-		return shared[idx], nil
+		value = shared[idx]
 	case "inlineStr":
 		if c.Inline == nil {
 			return "", nil
@@ -121,36 +213,18 @@ func cellText(c xlsxCell, shared []string) (string, error) {
 		for _, run := range c.Inline.Runs {
 			b.WriteString(run.Text)
 		}
-		return b.String(), nil
+		value = b.String()
 	default:
-		return c.Value, nil
+		value = c.Value
 	}
+	return cellTextValue(value)
 }
 
-func readSharedStrings(zr *zip.Reader) ([]string, error) {
-	data, err := readZipFile(zr, "xl/sharedStrings.xml")
-	if err != nil {
-		return nil, nil
+func cellTextValue(value string) (string, error) {
+	if len(value) > maxCellTextBytes {
+		return "", fmt.Errorf("单元格文本过长：%d 字节（上限 %d）", len(value), maxCellTextBytes)
 	}
-	var sst struct {
-		Items []struct {
-			Text string    `xml:"t"`
-			Runs []xlsxRun `xml:"r"`
-		} `xml:"si"`
-	}
-	if err := xml.Unmarshal(data, &sst); err != nil {
-		return nil, fmt.Errorf("parse sharedStrings: %w", err)
-	}
-	out := make([]string, len(sst.Items))
-	for i, item := range sst.Items {
-		var b strings.Builder
-		b.WriteString(item.Text)
-		for _, run := range item.Runs {
-			b.WriteString(run.Text)
-		}
-		out[i] = b.String()
-	}
-	return out, nil
+	return value, nil
 }
 
 func workbookSheetPath(zr *zip.Reader) string {
@@ -231,6 +305,20 @@ func cellColumn(ref string) (int, error) {
 	}
 	if letters == 0 {
 		return 0, fmt.Errorf("xlsx: bad cell reference %q", ref)
+	}
+	if suffix := ref[letters:]; suffix != "" {
+		for _, r := range suffix {
+			if r < '0' || r > '9' {
+				return 0, fmt.Errorf("xlsx: 单元格行号无效（不支持科学计数）：%q", ref)
+			}
+		}
+		row, err := strconv.Atoi(suffix)
+		if err != nil || row <= 0 {
+			return 0, fmt.Errorf("xlsx: 单元格行号无效或过大：%q", ref)
+		}
+		if row > maxSheetRows {
+			return 0, fmt.Errorf("xlsx: 单元格行号超过 %d：%q", maxSheetRows, ref)
+		}
 	}
 	if col > maxColumns {
 		return 0, fmt.Errorf("xlsx: 单元格列号超过 XFD: %q", ref)

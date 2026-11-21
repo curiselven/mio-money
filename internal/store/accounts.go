@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/curiselven/mio-money/internal/domain"
 )
@@ -33,6 +34,12 @@ func (s *Store) UpsertAccount(ctx context.Context, a *domain.Account) error {
 			updated_at = excluded.updated_at`,
 		a.ID, a.Name, a.Platform, a.Type, a.Currency, a.Owner, nullableText(a.ParentID), a.Archived,
 		formatTime(a.CreatedAt), formatTime(a.UpdatedAt))
+	if err != nil && strings.Contains(err.Error(), "accounts_sibling_name_unique") {
+		if a.ParentID == "" {
+			return errors.New("同名账户已存在，请换一个名称")
+		}
+		return errors.New("该账户下已有同名组合，请换一个名称")
+	}
 	return err
 }
 
