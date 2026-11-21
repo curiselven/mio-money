@@ -48,12 +48,37 @@ assert.equal(importSummary([], targets, new Map()).done, false);
 
 assert.deepEqual(
   priorImportUndo({ target: { existing_snapshot_id: "snap_efund", existing_snapshot_source: "efund_import" } }),
-  { source: "efund_import", snapshotID: "snap_efund", canUndo: true },
+  { source: "efund_import", snapshotID: "snap_efund", pending: false, canUndo: true },
 );
 assert.deepEqual(
   priorImportUndo({ outcome: { existing_snapshot_id: "snap_mcp", existing_snapshot_source: "mcp" } }),
-  { source: "mcp", snapshotID: "snap_mcp", canUndo: false },
+  { source: "mcp", snapshotID: "snap_mcp", pending: false, canUndo: false },
 );
 assert.equal(priorImportUndo({ target: { existing_snapshot_source: "efund_import" } }).canUndo, false);
+assert.deepEqual(
+  priorImportUndo({
+    target: {
+      existing_snapshot_id: "snap_pending",
+      existing_snapshot_source: "efund_import",
+      imported_status: "efund_import / 待确认",
+    },
+  }),
+  { source: "efund_import", snapshotID: "snap_pending", pending: true, canUndo: false },
+);
+
+assert.equal(
+  targetState(
+    { already_imported: true, imported_status: "efund_import / 待确认" },
+    { status: "skipped" },
+  ),
+  "pending",
+);
+assert.equal(
+  targetState(
+    { already_imported: true, imported_status: "efund_import / 已确认" },
+    { status: "skipped" },
+  ),
+  "skipped",
+);
 
 console.log("efund_flow: ok");

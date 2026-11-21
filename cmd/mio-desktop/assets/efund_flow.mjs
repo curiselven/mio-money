@@ -11,7 +11,9 @@ export function targetForGroup(group, targets) {
 
 export function targetState(target, outcome) {
   if (outcome?.status === "undone") return "open";
-  if (outcome) return outcome.status;
+  if (outcome) {
+    return outcome.status === "skipped" && importIsPending(target?.imported_status) ? "pending" : outcome.status;
+  }
   if (target?.already_imported) return importIsPending(target.imported_status) ? "pending" : "skipped";
   return "open";
 }
@@ -37,7 +39,8 @@ export function mergeResults(outcomes, results) {
 export function priorImportUndo(entry) {
   const source = entry?.outcome?.existing_snapshot_source || entry?.target?.existing_snapshot_source || "";
   const snapshotID = entry?.outcome?.existing_snapshot_id || entry?.target?.existing_snapshot_id || "";
-  return { source, snapshotID, canUndo: source === "efund_import" && Boolean(snapshotID) };
+  const pending = importIsPending(entry?.target?.imported_status);
+  return { source, snapshotID, pending, canUndo: source === "efund_import" && Boolean(snapshotID) && !pending };
 }
 
 export function importSummary(groups, targets, outcomes) {

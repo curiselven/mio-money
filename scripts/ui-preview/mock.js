@@ -558,7 +558,7 @@
     results: [
       { account_id: "fund_core", account_name: "核心基金组合", status: "applied", snapshot_id: "snap_mock_01", market_value_cents: w(68420.55) },
       { account_id: "fund_spare", account_name: "备用基金账户", status: "pending", message: "进入待确认", anomalies: ["账户总市值相对上次变化 32.4%，超过阈值 20%"], market_value_cents: w(15238) },
-      { account_id: "fund_pending", account_name: "稳健配置组合", status: "pending", message: "已存在待确认快照", market_value_cents: w(41206.66) },
+      { account_id: "fund_pending", account_name: "稳健配置组合", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 待确认 快照", existing_snapshot_id: "snap_pending_01", existing_snapshot_source: "efund_import", market_value_cents: w(41206.66) },
       { account_id: "fund_done", account_name: "旧配置组合", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 efund_import / 已确认 快照", existing_snapshot_id: "snap_done_01", existing_snapshot_source: "efund_import", market_value_cents: w(22890) },
       { account_id: "fund_legacy", account_name: "旧日基金账户", status: "skipped", message: "之前已导入：该账户在 2026-10-18 已有 mcp / 已确认 快照", existing_snapshot_id: "snap_legacy_01", existing_snapshot_source: "mcp", market_value_cents: w(31500) },
     ],

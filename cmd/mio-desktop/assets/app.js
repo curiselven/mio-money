@@ -2089,7 +2089,9 @@ function renderEfundComplete(preview, summary) {
     const title = efundNode("h3", "", entry.name);
     title.append(efundNode("span", "efund-tag warn-tag", "待确认"));
     left.append(title);
-    const message = entry.message || entry.target?.imported_status;
+    const message = entry.outcome?.status === "skipped"
+      ? "这次导入还在待确认里"
+      : entry.message || entry.target?.imported_status;
     if (message) left.append(efundNode("p", "efund-result-message", message));
     headRow.append(left);
     const actions = efundNode("div", "efund-actions");
@@ -2115,12 +2117,19 @@ function renderEfundComplete(preview, summary) {
     const message = entry.message || entry.target?.imported_status || "之前已导入：该账户已有同日期快照";
     left.append(efundNode("p", "efund-result-message", message));
     const prior = priorImportUndo(entry);
-    if (prior.source && !prior.canUndo) {
+    if (prior.pending) {
+      left.append(efundNode("p", "efund-result-message", "这次导入还在待确认里"));
+    } else if (prior.source && !prior.canUndo) {
       left.append(efundNode("p", "efund-result-message", "该日快照来自其他来源，不在这里撤销"));
     }
     headRow.append(left);
     const actions = efundNode("div", "efund-actions");
-    if (prior.canUndo) {
+    if (prior.pending) {
+      const go = efundNode("button", "btn text", "去待确认");
+      go.type = "button";
+      go.addEventListener("click", () => showView("pending"));
+      actions.append(go);
+    } else if (prior.canUndo) {
       const undo = efundNode("button", "btn", "撤销之前导入");
       undo.type = "button";
       undo.disabled = efundBusy;
