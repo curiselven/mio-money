@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { accountRows } from "./account_tree.mjs";
+import { accountRows, allocationTotals } from "./account_tree.mjs";
 
 const accounts = [
   {
     account_id: "acc_top",
     name: "示例账户",
+    type: "fund",
+    as_of: "2026-10-01",
     value_cents: 100000,
     share_percent: 10,
     items: [],
@@ -13,6 +15,8 @@ const accounts = [
     account_id: "acc_child",
     parent_id: "acc_top",
     name: "示例组合",
+    type: "fund",
+    as_of: "2026-10-18",
     value_cents: 250000,
     share_percent: 25,
     items: [{ name: "示例基金" }],
@@ -22,8 +26,11 @@ const accounts = [
 let rows = accountRows(accounts, new Set());
 assert.equal(rows.get("acc_top").totalCents, 350000);
 assert.equal(rows.get("acc_top").totalShare, 35);
+assert.equal(rows.get("acc_top").totalAsOf, "2026-10-18");
+assert.equal(rows.get("acc_top").root, true);
 assert.equal(rows.get("acc_top").visible, true);
 assert.equal(rows.get("acc_top").detailVisible, false);
+assert.equal(rows.get("acc_child").root, false);
 assert.equal(rows.get("acc_child").visible, false);
 assert.equal(rows.get("acc_child").detailVisible, false);
 
@@ -42,5 +49,12 @@ assert.equal(rows.get("acc_child").detailVisible, false);
 const cashOnly = accountRows([{ account_id: "acc_cash", value_cents: 0, share_percent: 0, cash_cents: 500 }], new Set());
 assert.equal(cashOnly.get("acc_cash").expandable, true);
 assert.equal(cashOnly.get("acc_cash").hasChildren, false);
+
+const totals = allocationTotals(accounts);
+assert.equal(totals.get("fund"), 350000);
+
+const orphan = accountRows([{ account_id: "acc_orphan", parent_id: "acc_missing", value_cents: 1, share_percent: 1 }], new Set());
+assert.equal(orphan.get("acc_orphan").root, true);
+assert.equal(orphan.get("acc_orphan").visible, true);
 
 console.log("account_tree: ok");

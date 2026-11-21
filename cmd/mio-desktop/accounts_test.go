@@ -123,3 +123,60 @@ func TestAccountServiceEditsAllManagedTypes(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountServiceListSummarizesLatestSnapshots(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "mio.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := domain.NewService(st, 0.2)
+	accounts := NewAccountService(svc, st)
+
+	top, err := accounts.SaveAccount(AccountFormInput{Name: "示例账户", Type: domain.AccountFund, Owner: "我"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := accounts.SavePortfolio(PortfolioFormInput{ParentID: top.ID, Name: "示例组合一"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := accounts.SavePortfolio(PortfolioFormInput{ParentID: top.ID, Name: "示例组合二"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := accounts.SaveAccount(AccountFormInput{Name: "空账户", Type: domain.AccountCash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitConfirmed(t, svc, first.ID, "2026-10-01", 120_000)
+	submitConfirmed(t, svc, second.ID, "2026-10-18", 80_000)
+
+	tree, err := accounts.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]AccountManageItem{}
+	for _, item := range tree.Accounts {
+		byID[item.ID] = item
+	}
+	for _, item := range tree.Portfolios {
+		byID[item.ID] = item
+	}
+	parent := byID[top.ID]
+	if parent.ChildCount != 2 || parent.LatestValueCents == nil || *parent.LatestValueCents != 200_000 ||
+		parent.LatestAsOf != "2026-10-18" {
+		t.Fatalf("parent summary = %+v", parent)
+	}
+	if firstItem := byID[first.ID]; firstItem.LatestValueCents == nil ||
+		*firstItem.LatestValueCents != 120_000 || firstItem.LatestAsOf != "2026-10-01" {
+		t.Fatalf("first portfolio summary = %+v", firstItem)
+	}
+	if secondItem := byID[second.ID]; secondItem.LatestValueCents == nil ||
+		*secondItem.LatestValueCents != 80_000 || secondItem.LatestAsOf != "2026-10-18" {
+		t.Fatalf("second portfolio summary = %+v", secondItem)
+	}
+	if emptyItem := byID[empty.ID]; emptyItem.LatestValueCents != nil || emptyItem.LatestAsOf != "" {
+		t.Fatalf("empty account summary = %+v", emptyItem)
+	}
+}

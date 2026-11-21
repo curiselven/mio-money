@@ -127,6 +127,9 @@ func (s *Service) netWorthAt(ctx context.Context, asOf string) (*NetWorth, error
 	typeTotals := map[AccountType]*TypeTotal{}
 	for _, sn := range snaps {
 		a := byID[sn.AccountID]
+		if a.Archived {
+			continue
+		}
 		value := sn.TotalCents()
 		out.ByAccount = append(out.ByAccount, AccountValue{
 			AccountID: a.ID, Name: a.Name, Type: a.Type, ValueCents: value,

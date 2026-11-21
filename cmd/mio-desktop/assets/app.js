@@ -1,8 +1,8 @@
 if (window.location.protocol === "wails:" || window.location.hostname === "wails.localhost") {
   await import("/wails/runtime.js");
 }
-import { accountEditValues } from "./account_form.mjs";
-import { accountRows } from "./account_tree.mjs";
+import { accountEditValues, accountFormVisibility } from "./account_form.mjs";
+import { accountRows, allocationTotals } from "./account_tree.mjs";
 import { groupState, importSummary, mergeResults, priorImportUndo, targetState } from "./efund_flow.mjs";
 
 const overviewView = document.getElementById("overview-view");
@@ -44,6 +44,11 @@ const efundResultRoot = document.getElementById("efund-result");
 const efundUpload = document.getElementById("efund-upload");
 const efundSteps = [...document.querySelectorAll("#efund-steps [data-step]")];
 const accountsTree = document.getElementById("accounts-tree");
+const accountCreatePanel = document.getElementById("account-create-panel");
+const portfolioCreatePanel = document.getElementById("portfolio-create-panel");
+const accountEditPanel = document.getElementById("account-edit-panel");
+const accountCreateOpen = document.getElementById("account-create-open");
+const portfolioCreateOpen = document.getElementById("portfolio-create-open");
 const accountCreateForm = document.getElementById("account-create");
 const portfolioCreateForm = document.getElementById("portfolio-create");
 const accountEditForm = document.getElementById("account-edit");
@@ -229,7 +234,7 @@ function renderAccounts(accounts) {
     const info = rows.get(account.account_id);
     const row = document.createElement("tr");
     row.dataset.accountRow = account.account_id;
-    if (account.parent_id) {
+    if (!info.root) {
       row.dataset.parent = account.parent_id;
       row.className = "account-row-child";
     }
@@ -259,17 +264,22 @@ function renderAccounts(accounts) {
     row.append(value);
 
     const share = document.createElement("span");
-    share.className = "num";
-    share.textContent = `${info.totalShare.toFixed(1)}%`;
-    const bar = document.createElement("span");
-    bar.className = "shbar";
-    const fillBar = document.createElement("i");
-    if (account.type === "liability") fillBar.className = "n";
-    fillBar.style.width = `${Math.max(1, Math.min(60, Math.abs(info.totalShare) * 0.6))}px`;
-    bar.append(fillBar);
-    share.append(bar);
+    if (info.root) {
+      share.className = "num";
+      share.textContent = `${info.totalShare.toFixed(1)}%`;
+      const bar = document.createElement("span");
+      bar.className = "shbar";
+      const fillBar = document.createElement("i");
+      if (account.type === "liability") fillBar.className = "n";
+      fillBar.style.width = `${Math.max(1, Math.min(60, Math.abs(info.totalShare) * 0.6))}px`;
+      bar.append(fillBar);
+      share.append(bar);
+    } else {
+      share.className = "num faint";
+      share.textContent = "—";
+    }
     row.append(cell(row, share, "num"));
-    row.append(cell(row, account.as_of || "—", "num faint"));
+    row.append(cell(row, (info.root ? info.totalAsOf : account.as_of) || "—", "num faint"));
     const action = document.createElement("td");
     action.className = "account-action";
     if (account.type === "liability") {
@@ -295,7 +305,7 @@ function renderAccounts(accounts) {
       const sub = document.createElement("tr");
       sub.className = "sub";
       sub.dataset.detailFor = account.account_id;
-      if (account.parent_id) sub.dataset.parent = account.parent_id;
+      if (!info.root) sub.dataset.parent = account.parent_id;
       const itemName = document.createElement("span");
       itemName.textContent = item.name;
       if (item.code) {
@@ -314,7 +324,7 @@ function renderAccounts(accounts) {
       const sub = document.createElement("tr");
       sub.className = "sub";
       sub.dataset.detailFor = account.account_id;
-      if (account.parent_id) sub.dataset.parent = account.parent_id;
+      if (!info.root) sub.dataset.parent = account.parent_id;
       sub.append(cell(sub, "现金", "l"));
       sub.append(cell(sub, money(account.cash_cents), "num"));
       sub.append(cell(sub, ""), cell(sub, ""), cell(sub, ""));
@@ -325,7 +335,7 @@ function renderAccounts(accounts) {
       const sub = document.createElement("tr");
       sub.className = "sub loan-sub";
       sub.dataset.detailFor = account.account_id;
-      if (account.parent_id) sub.dataset.parent = account.parent_id;
+      if (!info.root) sub.dataset.parent = account.parent_id;
       const td = document.createElement("td");
       td.className = "l";
       td.colSpan = 5;
@@ -377,11 +387,7 @@ function refreshAccountRows() {
 
 function renderAllocation(overview) {
   allocationBox.replaceChildren();
-  const totals = new Map();
-  for (const account of overview.accounts) {
-    if (account.type === "liability" || account.value_cents <= 0) continue;
-    totals.set(account.type, (totals.get(account.type) || 0) + account.value_cents);
-  }
+  const totals = allocationTotals(overview.accounts);
   const total = [...totals.values()].reduce((sum, value) => sum + value, 0);
   if (total === 0) {
     const note = document.createElement("p");
@@ -2306,13 +2312,36 @@ function accountLabel(item) {
   return `组合：${parent?.name || "?"} / ${item.name}`;
 }
 
+function showAccountForm(open) {
+  const visible = accountFormVisibility(open);
+  accountCreatePanel.hidden = !visible.create;
+  portfolioCreatePanel.hidden = !visible.portfolio;
+  accountEditPanel.hidden = !visible.edit;
+}
+
+function openAccountCreate() {
+  showAccountForm("create");
+  accountCreatePanel.scrollIntoView({ behavior: "smooth", block: "center" });
+  accountCreateForm.elements.name.focus({ preventScroll: true });
+}
+
+function openPortfolioCreate(parentId) {
+  const select = portfolioCreateForm.elements.parent_id;
+  if (parentId && [...select.options].some((option) => option.value === parentId)) {
+    select.value = parentId;
+  }
+  showAccountForm("portfolio");
+  portfolioCreatePanel.scrollIntoView({ behavior: "smooth", block: "center" });
+  portfolioCreateForm.elements.name.focus({ preventScroll: true });
+}
+
 function renderAccountTree(tree) {
   accountsTree.replaceChildren();
   if (!tree.accounts.length) {
     const emptyState = efundNode("div", "empty compact");
     emptyState.append(
       efundNode("strong", "", "还没有账户"),
-      efundNode("span", "", "先在下方新建一个顶层账户，再添加组合。"),
+      efundNode("span", "", "点上方「新建账户」开始，再添加组合。"),
     );
     accountsTree.append(emptyState);
     return;
@@ -2324,19 +2353,24 @@ function renderAccountTree(tree) {
     const title = efundNode("h3", "", top.name);
     if (top.archived) title.append(efundNode("span", "efund-tag muted-tag", "已归档"));
     left.append(title);
+    const portfolioCount = top.child_count ?? tree.portfolios.filter((p) => p.parent_id === top.id).length;
     left.append(efundNode("p", "meta-line",
-      `${typeLabels[top.type] || top.type} · ${top.currency} · ${top.owner || "未归属"} · ${tree.portfolios.filter((p) => p.parent_id === top.id).length} 个组合`));
+      `${typeLabels[top.type] || top.type} · ${top.owner || "未归属"} · ${portfolioCount} 个组合`));
     head.append(left);
+    const figures = efundNode("div", "account-figures");
+    figures.append(
+      efundNode("span", "account-figures-label", "最新快照合计"),
+      efundNode("span", "account-value num", top.latest_value_cents == null ? "—" : money(top.latest_value_cents)),
+      efundNode("span", "account-date num", top.latest_as_of || "—"),
+    );
+    head.append(figures);
     const actions = efundNode("div", "efund-actions");
     const edit = efundNode("button", "btn text", "编辑");
     edit.type = "button";
     edit.addEventListener("click", () => openAccountEditor(top.id));
     const add = efundNode("button", "btn small", "新建组合");
     add.type = "button";
-    add.addEventListener("click", () => {
-      portfolioCreateForm.elements.parent_id.value = top.id;
-      portfolioCreateForm.elements.name.focus();
-    });
+    add.addEventListener("click", () => openPortfolioCreate(top.id));
     actions.append(edit);
     if (!top.archived && !top.has_snapshots) actions.append(add);
     head.append(actions);
@@ -2347,8 +2381,13 @@ function renderAccountTree(tree) {
       const li = efundNode("li");
       const name = efundNode("span", "", portfolio.name);
       if (portfolio.archived) name.append(efundNode("span", "efund-tag muted-tag", "已归档"));
-      if (portfolio.has_snapshots) name.append(efundNode("span", "efund-tag", "有快照"));
-      name.append(efundNode("span", "muted", ` · ${portfolio.currency} · ${portfolio.owner || "未归属"}`));
+      if (portfolio.has_snapshots && portfolio.latest_value_cents == null) {
+        name.append(efundNode("span", "efund-tag", "有快照"));
+      }
+      name.append(efundNode("span", "portfolio-meta", ` · ${typeLabels[portfolio.type] || portfolio.type} · ${portfolio.owner || "未归属"}`));
+      name.append(efundNode("span", "portfolio-snapshot num",
+        portfolio.latest_value_cents == null ? " · 最新 —" : ` · 最新 ${money(portfolio.latest_value_cents)}`));
+      name.append(efundNode("span", "portfolio-date num", ` · ${portfolio.latest_as_of || "—"}`));
       const button = efundNode("button", "btn text", "编辑");
       button.type = "button";
       button.addEventListener("click", () => openAccountEditor(portfolio.id));
@@ -2378,6 +2417,8 @@ function fillAccountOptions(tree) {
     option.textContent = top.name;
     parent.append(option);
   }
+  portfolioCreateOpen.disabled = parent.options.length === 0;
+  portfolioCreateOpen.title = portfolioCreateOpen.disabled ? "先新建一个没有快照的账户" : "";
   accountEditSelect.replaceChildren();
   for (const item of [...tree.accounts, ...tree.portfolios]) {
     const option = document.createElement("option");
@@ -2422,6 +2463,7 @@ function openAccountEditor(id) {
     if (!item) throw new Error("找不到要编辑的账户");
     accountEditSelect.value = id;
     if (!syncAccountEdit()) return;
+    showAccountForm("edit");
     accountEditForm.scrollIntoView({ behavior: "smooth", block: "center" });
     accountEditForm.elements.name.focus({ preventScroll: true });
     showStatus(`正在编辑：${accountLabel(item)}`);
@@ -2445,6 +2487,22 @@ async function reloadAccounts() {
   }
 }
 
+accountCreateOpen.addEventListener("click", openAccountCreate);
+portfolioCreateOpen.addEventListener("click", () => openPortfolioCreate());
+
+accountCreateForm.querySelector(".account-form-cancel").addEventListener("click", () => {
+  accountCreateForm.reset();
+  accountCreateForm.elements.currency.value = "CNY";
+  showAccountForm(null);
+});
+portfolioCreateForm.querySelector(".account-form-cancel").addEventListener("click", () => {
+  portfolioCreateForm.elements.name.value = "";
+  showAccountForm(null);
+});
+accountEditForm.querySelector(".account-form-cancel").addEventListener("click", () => {
+  showAccountForm(null);
+});
+
 accountCreateForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const elements = accountCreateForm.elements;
@@ -2458,6 +2516,7 @@ accountCreateForm.addEventListener("submit", async (event) => {
     accountCreateForm.reset();
     accountCreateForm.elements.currency.value = "CNY";
     await reloadAccounts();
+    showAccountForm(null);
     showStatus("账户已创建");
   } catch (error) {
     showStatus(errorText(error), "error");
@@ -2474,6 +2533,7 @@ portfolioCreateForm.addEventListener("submit", async (event) => {
     });
     elements.name.value = "";
     await reloadAccounts();
+    showAccountForm(null);
     showStatus("组合已创建");
   } catch (error) {
     showStatus(errorText(error), "error");
@@ -2500,6 +2560,7 @@ accountEditForm.addEventListener("submit", async (event) => {
       });
     }
     await reloadAccounts();
+    showAccountForm(null);
     showStatus("修改已保存");
   } catch (error) {
     showStatus(errorText(error), "error");
@@ -2523,6 +2584,7 @@ accountEditForm.querySelector(".account-archive").addEventListener("click", asyn
       await call("AccountService.SaveAccount", { id: item.id, archived: true });
     }
     await reloadAccounts();
+    showAccountForm(null);
     showStatus("已归档");
   } catch (error) {
     showStatus(errorText(error), "error");

@@ -75,7 +75,7 @@
                 <tr>
                   <th class="l">账户</th>
                   <th>金额</th>
-                  <th>占净资产</th>
+                  <th title="账户树最新确认快照 ÷ 总资产">占总资产</th>
                   <th>最新快照</th>
                   <th></th>
                 </tr>
@@ -157,12 +157,18 @@
       </header>
 
       <section class="panel account-tree-panel">
-        <div class="ph"><h2>现有账户</h2><span>编辑账户、组合或创建组合</span></div>
+        <div class="ph">
+          <div class="ph-copy"><h2>现有账户</h2><span>编辑账户、组合或创建组合</span></div>
+          <div class="ph-actions">
+            <button id="account-create-open" class="btn small" type="button" aria-controls="account-create-panel">新建账户</button>
+            <button id="portfolio-create-open" class="btn small" type="button" aria-controls="portfolio-create-panel">新建组合</button>
+          </div>
+        </div>
         <div id="accounts-tree" class="account-tree"></div>
       </section>
 
       <div class="row2 account-forms">
-        <section class="panel account-form-panel">
+        <section id="account-create-panel" class="panel account-form-panel" hidden>
           <div class="ph"><h2>新建账户</h2><span>顶层账户</span></div>
           <form id="account-create" class="efund-form account-form" novalidate>
             <label>名称<input name="name" required></label>
@@ -177,21 +183,27 @@
             </label>
             <label>币种<input name="currency" value="CNY"></label>
             <label>归属成员<input name="owner" list="owner-options" placeholder="可输入新成员"></label>
-            <div class="form-actions"><button class="btn pri" type="submit">新建账户</button></div>
+            <div class="form-actions">
+              <button class="btn account-form-cancel" type="button">取消</button>
+              <button class="btn pri" type="submit">新建账户</button>
+            </div>
           </form>
         </section>
 
-        <section class="panel account-form-panel">
+        <section id="portfolio-create-panel" class="panel account-form-panel" hidden>
           <div class="ph"><h2>新建组合</h2><span>挂在顶层账户下</span></div>
           <form id="portfolio-create" class="efund-form account-form" novalidate>
             <label>上级账户<select name="parent_id"></select></label>
             <label>组合名称<input name="name" required></label>
-            <div class="form-actions"><button class="btn pri" type="submit">新建组合</button></div>
+            <div class="form-actions">
+              <button class="btn account-form-cancel" type="button">取消</button>
+              <button class="btn pri" type="submit">新建组合</button>
+            </div>
           </form>
         </section>
       </div>
 
-      <section class="panel account-form-panel">
+      <section id="account-edit-panel" class="panel account-form-panel" hidden>
         <div class="ph"><h2>编辑 / 归档</h2><span>只允许归档没有快照的账户或组合</span></div>
         <form id="account-edit" class="efund-form account-form wide" novalidate>
           <label class="field-wide">对象<select name="target" id="account-edit-select"></select></label>
@@ -208,6 +220,7 @@
           <label class="account-only">币种<input name="currency"></label>
           <label class="account-only">归属成员<input name="owner" list="owner-options"></label>
           <div class="form-actions">
+            <button class="btn account-form-cancel" type="button">取消</button>
             <button class="btn pri" type="submit">保存修改</button>
             <button class="btn account-archive" type="button">归档</button>
           </div>

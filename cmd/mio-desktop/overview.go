@@ -76,15 +76,21 @@ func (s *OverviewService) Get() (*Overview, error) {
 	for _, h := range holdings {
 		byAccount[h.AccountID] = h
 	}
+	active := make([]domain.AccountSummary, 0, len(accounts))
+	for _, account := range accounts {
+		if !account.Archived {
+			active = append(active, account)
+		}
+	}
 
 	out := &Overview{
 		NetCents:         netWorth.NetCents,
 		AssetsCents:      netWorth.AssetsCents,
 		LiabilitiesCents: netWorth.LiabilitiesCents,
-		Accounts:         make([]OverviewAccount, 0, len(accounts)),
+		Accounts:         make([]OverviewAccount, 0, len(active)),
 		History:          history.Points,
 		PendingCount:     len(pending),
-		Empty:            len(accounts) == 0 && len(history.Points) == 0,
+		Empty:            len(active) == 0 && len(history.Points) == 0,
 	}
 	if len(history.Points) > 0 {
 		out.AsOf = history.Points[len(history.Points)-1].AsOf
@@ -100,12 +106,13 @@ func (s *OverviewService) Get() (*Overview, error) {
 		}
 	}
 
-	for _, account := range accounts {
+	for _, account := range active {
 		h := byAccount[account.ID]
 		value := h.TotalCents
 		share := 0.0
-		if out.NetCents != 0 {
-			share = float64(value) / float64(out.NetCents) * 100
+		// Gross assets keep leveraged asset accounts at or below 100%.
+		if out.AssetsCents != 0 {
+			share = float64(value) / float64(out.AssetsCents) * 100
 		}
 		items := h.Items
 		if items == nil {

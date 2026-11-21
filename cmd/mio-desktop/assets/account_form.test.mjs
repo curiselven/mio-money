@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { accountEditValues } from "./account_form.mjs";
+import { accountEditValues, accountFormVisibility } from "./account_form.mjs";
+
+assert.deepEqual(accountFormVisibility(null), { create: false, portfolio: false, edit: false });
+for (const name of ["create", "portfolio", "edit"]) {
+  const visible = accountFormVisibility(name);
+  assert.deepEqual(Object.keys(visible).filter((key) => visible[key]), [name]);
+}
 
 for (const type of ["fund", "mixed", "cash", "stock", "other"]) {
   const values = accountEditValues({

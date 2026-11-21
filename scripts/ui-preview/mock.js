@@ -49,7 +49,7 @@
         type: "stock",
         as_of: "2026-10-18",
         value_cents: w(386520.4),
-        share_percent: 30.68,
+        share_percent: 15.18,
         items: [
           { name: "虚构科技A", code: "600001", quantity: "4200", market_value_cents: w(226400.4) },
           { name: "虚构宽基ETF", code: "510001", quantity: "125000", market_value_cents: w(160120) },
@@ -63,7 +63,7 @@
         type: "stock",
         as_of: "2026-10-18",
         value_cents: w(612340.6),
-        share_percent: 48.6,
+        share_percent: 24.04,
         items: [
           { name: "虚构红利ETF", code: "510002", quantity: "188000", market_value_cents: w(612340.6) },
         ],
@@ -87,7 +87,7 @@
         type: "fund",
         as_of: "2026-10-18",
         value_cents: w(1505139),
-        share_percent: 119.45,
+        share_percent: 59.1,
         items: [
           { name: "虚构成长混合", code: "000001", quantity: "32000.50", market_value_cents: w(684205.5) },
           { name: "虚构稳健债券", code: "000003", quantity: "68000", market_value_cents: w(820933.5) },
@@ -101,7 +101,7 @@
         type: "cash",
         as_of: "2026-10-18",
         value_cents: w(42800),
-        share_percent: 3.4,
+        share_percent: 1.68,
         cash_cents: w(42800),
         items: [],
         parent_id: "",
@@ -113,7 +113,7 @@
         type: "liability",
         as_of: "2026-10-18",
         value_cents: w(-1286800),
-        share_percent: -102.13,
+        share_percent: -50.53,
         items: [],
         parent_id: "",
         has_children: false,
@@ -135,15 +135,15 @@
   const accountTree = {
     owners: ["林澈", "周岚"],
     accounts: [
-      { id: "acc_broker", name: "海岬证券", type: "stock", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true },
-      { id: "acc_fund", name: "基金E账户", type: "fund", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true },
-      { id: "acc_cash", name: "日常现金", type: "cash", currency: "CNY", owner: "周岚", parent_id: "", archived: false, has_snapshots: true, has_children: false },
-      { id: "acc_archive", name: "旧日储蓄", type: "other", currency: "CNY", owner: "林澈", parent_id: "", archived: true, has_snapshots: true, has_children: false },
+      { id: "acc_broker", name: "海岬证券", type: "stock", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 2, latest_value_cents: w(998861), latest_as_of: "2026-10-18" },
+      { id: "acc_fund", name: "基金E账户", type: "fund", currency: "CNY", owner: "林澈", parent_id: "", archived: false, has_snapshots: false, has_children: true, child_count: 1, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
+      { id: "acc_cash", name: "日常现金", type: "cash", currency: "CNY", owner: "周岚", parent_id: "", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(42800), latest_as_of: "2026-10-18" },
+      { id: "acc_archive", name: "旧日储蓄", type: "other", currency: "CNY", owner: "林澈", parent_id: "", archived: true, has_snapshots: false, has_children: false, child_count: 0 },
     ],
     portfolios: [
-      { id: "acc_growth", name: "长期成长组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false },
-      { id: "acc_dividend", name: "红利组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false },
-      { id: "acc_fund_core", name: "核心基金组合", type: "fund", currency: "CNY", owner: "林澈", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false },
+      { id: "acc_growth", name: "长期成长组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(386520.4), latest_as_of: "2026-10-18" },
+      { id: "acc_dividend", name: "红利组合", type: "stock", currency: "CNY", owner: "林澈", parent_id: "acc_broker", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(612340.6), latest_as_of: "2026-10-18" },
+      { id: "acc_fund_core", name: "核心基金组合", type: "fund", currency: "CNY", owner: "林澈", parent_id: "acc_fund", archived: false, has_snapshots: true, has_children: false, child_count: 0, latest_value_cents: w(1505139), latest_as_of: "2026-10-18" },
     ],
   };
 

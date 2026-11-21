@@ -10,7 +10,7 @@ import (
 	"github.com/curiselven/mio-money/internal/store"
 )
 
-func newOverview(t *testing.T) (*OverviewService, *domain.Service) {
+func newOverviewWithStore(t *testing.T) (*OverviewService, *domain.Service, *store.Store) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "mio.db"))
 	if err != nil {
@@ -18,7 +18,12 @@ func newOverview(t *testing.T) (*OverviewService, *domain.Service) {
 	}
 	t.Cleanup(func() { st.Close() })
 	svc := domain.NewService(st, 0.2)
-	return NewOverviewService(svc), svc
+	return NewOverviewService(svc), svc, st
+}
+
+func newOverview(t *testing.T) (*OverviewService, *domain.Service) {
+	overview, svc, _ := newOverviewWithStore(t)
+	return overview, svc
 }
 
 func submitConfirmed(t *testing.T, svc *domain.Service, accountID, asOf string, value int64) {
@@ -149,15 +154,98 @@ func TestOverviewAccountShares(t *testing.T) {
 	if len(got.Accounts) != 3 || got.Accounts[0].Name != "基金账户" {
 		t.Fatalf("accounts = %+v", got.Accounts)
 	}
-	var sum float64
+	var assetShareSum float64
 	for _, account := range got.Accounts {
-		sum += account.SharePercent
+		if account.Type != domain.AccountLiability {
+			assetShareSum += account.SharePercent
+		}
 	}
-	if math.Abs(sum-100) > 0.01 {
-		t.Fatalf("share sum = %v, accounts = %+v", sum, got.Accounts)
+	if math.Abs(assetShareSum-100) > 0.01 {
+		t.Fatalf("asset share sum = %v, accounts = %+v", assetShareSum, got.Accounts)
+	}
+	shares := map[string]float64{}
+	for _, account := range got.Accounts {
+		shares[account.Name] = account.SharePercent
+	}
+	if math.Abs(shares["股票账户"]-30) > 0.01 ||
+		math.Abs(shares["基金账户"]-70) > 0.01 ||
+		math.Abs(shares["信用卡"]+20) > 0.01 {
+		t.Fatalf("shares = %+v", shares)
 	}
 	if got.ChangeCents != nil {
 		t.Fatalf("single history point must not show a change: %+v", got)
+	}
+}
+
+func TestOverviewPortfolioSharesUseAssetsOnce(t *testing.T) {
+	ctx := context.Background()
+	overview, svc := newOverview(t)
+	top, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例组合一", ParentID: top.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "示例组合二", ParentID: top.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitConfirmed(t, svc, first.ID, "2026-02-01", 300_000)
+	submitConfirmed(t, svc, second.ID, "2026-03-01", 700_000)
+
+	got, err := overview.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AssetsCents != 1_000_000 || got.NetCents != 1_000_000 || len(got.Accounts) != 3 {
+		t.Fatalf("overview = %+v", got)
+	}
+	byID := map[string]OverviewAccount{}
+	for _, account := range got.Accounts {
+		byID[account.AccountID] = account
+	}
+	if byID[top.ID].ValueCents != 0 || byID[top.ID].SharePercent != 0 || !byID[top.ID].HasChildren {
+		t.Fatalf("parent must aggregate on the client, not in net worth: %+v", byID[top.ID])
+	}
+	if math.Abs(byID[first.ID].SharePercent-30) > 0.01 ||
+		math.Abs(byID[second.ID].SharePercent-70) > 0.01 {
+		t.Fatalf("portfolio shares = %+v", byID)
+	}
+}
+
+func TestOverviewSkipsArchivedAccounts(t *testing.T) {
+	ctx := context.Background()
+	overview, svc, st := newOverviewWithStore(t)
+	active, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "在用账户", Type: domain.AccountCash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := svc.UpsertAccount(ctx, domain.UpsertAccountInput{Name: "归档账户", Type: domain.AccountFund})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submitCashConfirmed(t, svc, active.ID, "2026-10-01", 100_000)
+	submitConfirmed(t, svc, archived.ID, "2026-10-01", 900_000)
+	stored, err := st.GetAccount(ctx, archived.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored.Archived = true
+	if err := st.UpsertAccount(ctx, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := overview.Get()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AssetsCents != 100_000 || got.NetCents != 100_000 {
+		t.Fatalf("archived account counted in net worth: %+v", got)
+	}
+	if len(got.Accounts) != 1 || got.Accounts[0].AccountID != active.ID {
+		t.Fatalf("archived account listed on home: %+v", got.Accounts)
 	}
 }
 

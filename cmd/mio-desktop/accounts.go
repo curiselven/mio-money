@@ -16,16 +16,19 @@ type AccountService struct {
 }
 
 type AccountManageItem struct {
-	ID           string             `json:"id"`
-	Name         string             `json:"name"`
-	Platform     string             `json:"platform,omitempty"`
-	Type         domain.AccountType `json:"type"`
-	Currency     string             `json:"currency"`
-	Owner        string             `json:"owner,omitempty"`
-	ParentID     string             `json:"parent_id,omitempty"`
-	Archived     bool               `json:"archived"`
-	HasSnapshots bool               `json:"has_snapshots"`
-	HasChildren  bool               `json:"has_children"`
+	ID               string             `json:"id"`
+	Name             string             `json:"name"`
+	Platform         string             `json:"platform,omitempty"`
+	Type             domain.AccountType `json:"type"`
+	Currency         string             `json:"currency"`
+	Owner            string             `json:"owner,omitempty"`
+	ParentID         string             `json:"parent_id,omitempty"`
+	Archived         bool               `json:"archived"`
+	HasSnapshots     bool               `json:"has_snapshots"`
+	HasChildren      bool               `json:"has_children"`
+	ChildCount       int                `json:"child_count"`
+	LatestValueCents *int64             `json:"latest_value_cents,omitempty"`
+	LatestAsOf       string             `json:"latest_as_of,omitempty"`
 }
 
 type AccountTree struct {
@@ -57,9 +60,23 @@ func NewAccountService(svc *domain.Service, st *store.Store) *AccountService {
 
 func (s *AccountService) List() (*AccountTree, error) {
 	ctx := context.Background()
-	accounts, err := s.st.ListAccounts(ctx)
+	accounts, err := s.svc.ListAccounts(ctx)
 	if err != nil {
 		return nil, err
+	}
+	holdings, err := s.svc.Holdings(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	latest := make(map[string]domain.Holdings, len(holdings))
+	for _, holding := range holdings {
+		latest[holding.AccountID] = holding
+	}
+	childCounts := map[string]int{}
+	for _, account := range accounts {
+		if account.ParentID != "" {
+			childCounts[account.ParentID]++
+		}
 	}
 	owners := map[string]bool{}
 	out := &AccountTree{Accounts: []AccountManageItem{}, Portfolios: []AccountManageItem{}, Owners: []string{}}
@@ -83,11 +100,41 @@ func (s *AccountService) List() (*AccountTree, error) {
 			Type: account.Type, Currency: account.Currency, Owner: account.Owner,
 			ParentID: account.ParentID, Archived: account.Archived,
 			HasSnapshots: hasSnapshots, HasChildren: hasChildren,
+			ChildCount: childCounts[account.ID],
+		}
+		if holding, ok := latest[account.ID]; ok {
+			value := holding.TotalCents
+			item.LatestValueCents = &value
+			item.LatestAsOf = holding.AsOf
 		}
 		if account.ParentID == "" {
 			out.Accounts = append(out.Accounts, item)
 		} else {
 			out.Portfolios = append(out.Portfolios, item)
+		}
+	}
+	for i := range out.Accounts {
+		var total int64
+		hasValue := false
+		asOf := ""
+		if out.Accounts[i].LatestValueCents != nil {
+			total = *out.Accounts[i].LatestValueCents
+			hasValue = true
+			asOf = out.Accounts[i].LatestAsOf
+		}
+		for _, portfolio := range out.Portfolios {
+			if portfolio.ParentID != out.Accounts[i].ID || portfolio.LatestValueCents == nil {
+				continue
+			}
+			total += *portfolio.LatestValueCents
+			hasValue = true
+			if portfolio.LatestAsOf > asOf {
+				asOf = portfolio.LatestAsOf
+			}
+		}
+		if hasValue {
+			out.Accounts[i].LatestValueCents = &total
+			out.Accounts[i].LatestAsOf = asOf
 		}
 	}
 	for owner := range owners {
