@@ -46,7 +46,7 @@ func TestPreviewMappingAndDiff(t *testing.T) {
 	}
 	repo := fakeRepo{
 		accounts: []domain.Account{
-			{ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund, Currency: "CNY"},
+			{ID: "acc_changying", Name: "示例组合", Type: domain.AccountFund, Currency: "CNY"},
 		},
 		prev: map[string]*domain.Snapshot{
 			"acc_changying": {
@@ -60,7 +60,7 @@ func TestPreviewMappingAndDiff(t *testing.T) {
 		},
 	}
 	mapping := &Mapping{Mappings: []MappingEntry{
-		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划"},
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合"},
 		{SalesOrg: salesA, TradeAccount: "T0000002", Account: "新组合"},
 	}}
 	preview, err := Build(t.Context(), repo, parsed, mapping)
@@ -105,7 +105,7 @@ func TestPreviewAccountIDWinsWithoutNameFallback(t *testing.T) {
 		t.Fatalf("parse: %v", err)
 	}
 	repo := fakeRepo{accounts: []domain.Account{
-		{ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund, Currency: "CNY"},
+		{ID: "acc_changying", Name: "示例组合", Type: domain.AccountFund, Currency: "CNY"},
 	}}
 
 	matched, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
@@ -119,7 +119,7 @@ func TestPreviewAccountIDWinsWithoutNameFallback(t *testing.T) {
 	}
 
 	missing, err := Build(t.Context(), repo, parsed, &Mapping{Mappings: []MappingEntry{
-		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划", AccountID: "acc_missing"},
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合", AccountID: "acc_missing"},
 	}})
 	if err != nil {
 		t.Fatalf("build missing id: %v", err)
@@ -195,7 +195,7 @@ func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	account := &domain.Account{
-		ID: "acc_changying", Name: "长赢计划", Type: domain.AccountFund,
+		ID: "acc_changying", Name: "示例组合", Type: domain.AccountFund,
 		Currency: "CNY", CreatedAt: now, UpdatedAt: now,
 	}
 	if err := st.UpsertAccount(t.Context(), account); err != nil {
@@ -223,7 +223,7 @@ func TestPreviewDoesNotWriteDatabase(t *testing.T) {
 		t.Fatalf("open read-only = %v, err=%v", ro, err)
 	}
 	preview, err := Build(t.Context(), ro, parsed, &Mapping{Mappings: []MappingEntry{
-		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划"},
+		{SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合"},
 	}})
 	if err != nil {
 		t.Fatalf("build: %v", err)

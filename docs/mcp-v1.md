@@ -25,13 +25,14 @@ Mio 只负责存数据、校验和计算；识图、读券商这类采集工作�
 |---|---|---|---|
 | id | string | 是 | 系统生成 |
 | name | string | 是 | 如「支付宝」「且慢」「华泰证券」 |
+| parent_id | string | 否 | 上级账户 id；非空表示这是组合 |
 | platform | string | 否 | 平台标识，如 alipay / qieman / broker |
 | type | enum | 是 | cash / fund / stock / mixed / liability / other |
 | currency | string | 是 | 默认 CNY |
 | owner | string | 否 | 我 / 家人 / 共同 |
 | archived | bool | 否 | 停用 |
 
-组合（`parent_id` 非空）的 `owner` 始终等于上级账户的 `owner`；更新组合时不单独接受 `owner`，`list_accounts` 返回有效归属。
+账户最多两级：顶层账户（`parent_id` 为空）下可以挂多个组合，组合不能再有下级。组合（`parent_id` 非空）的 `owner` 始终等于上级账户的 `owner`；新建组合时未显式给出的 `type`/`currency` 继承上级。更新组合时不单独接受 `owner`，修改上级归属会级联到名下组合；`list_accounts` 返回有效归属。
 
 ### snapshot（持仓快照）
 | 字段 | 类型 | 必填 | 说明 |

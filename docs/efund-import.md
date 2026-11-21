@@ -31,6 +31,8 @@
 - 默认映射：`~/Library/Application Support/MioMoney/efund-map.json`
 - Linux 默认映射：`~/.config/MioMoney/efund-map.json`
 
+映射含销售机构、交易账号等敏感数据，不要提交进仓库。
+
 `account_id`/`account` 指向最终写入快照的组合或账户；`parent_account` 只用于阅读。`ignore: true` 表示本次忽略。
 
 ```json

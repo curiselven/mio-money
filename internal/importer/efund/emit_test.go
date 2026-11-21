@@ -44,7 +44,7 @@ func TestMergeMappingPreservesChoicesAndWrites0600(t *testing.T) {
 	generated := Skeleton(parsed)
 	existing := &Mapping{Mappings: []MappingEntry{
 		{
-			SalesOrg: salesA, TradeAccount: "T0000001", Account: "长赢计划",
+			SalesOrg: salesA, TradeAccount: "T0000001", Account: "示例组合",
 			AccountID: "acc_changying", Hint: &Hint{FundCount: 99},
 		},
 		{SalesOrg: "旧销售", TradeAccount: "T0000999", Account: "旧账户"},
@@ -54,7 +54,7 @@ func TestMergeMappingPreservesChoicesAndWrites0600(t *testing.T) {
 		t.Fatalf("added=%d mappings=%+v", added, merged.Mappings)
 	}
 	first := merged.Mappings[0]
-	if first.Account != "长赢计划" || first.AccountID != "acc_changying" || first.Hint.FundCount != 3 {
+	if first.Account != "示例组合" || first.AccountID != "acc_changying" || first.Hint.FundCount != 3 {
 		t.Fatalf("merged first = %+v", first)
 	}
 	if merged.Mappings[3].Account != "旧账户" {

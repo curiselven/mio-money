@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 合并后修正
+
+- `.gitignore` 忽略任意路径的 `efund-map.json` 和 `/shots/`；导入文档注明映射含敏感数据，不要提交进仓库。
+- 测试、mock 和示例中的真人名/真实计划名占位符统一改为「示例成员A」「示例成员B」「示例组合」等虚构值。
+- UI 预览 mock 的合计、记录数、持仓数改为从 groups/targets 推导；存在 `blocks_write` 警告时 `can_import` 为 false。
+- 导入、账户管理和待确认页的散值间距/字号收敛到现有 `:root` token。
+- `docs/mcp-v1.md` 补充账户 `parent_id`、两级组合约束和组合归属/类型/币种继承规则。
+
 ### 基金E账户导入
 
 - 新增基金E账户 xlsx 解析、CLI 预览与 `--emit-map` 映射骨架。
