@@ -55,12 +55,15 @@ func main() {
 			DisableLogging: true,
 		},
 	})
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "Mio · 总览",
-		URL:    "/",
-		Width:  900,
-		Height: 760,
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:           "Mio · 总览",
+		URL:             "/",
+		Width:           defaultWindowWidth,
+		Height:          defaultWindowHeight,
+		InitialPosition: application.WindowCentered,
+		Hidden:          true,
 	})
+	restoreAndTrackWindowState(app, window, windowStatePath(*dbPath))
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
