@@ -2380,14 +2380,14 @@ function renderAccountTree(tree) {
     );
     head.append(figures);
     const actions = efundNode("div", "efund-actions");
-    const edit = efundNode("button", "btn text", "编辑");
+    const edit = efundNode("button", "btn small", "编辑");
     edit.type = "button";
     edit.addEventListener("click", () => openAccountEditor(top.id));
-    const add = efundNode("button", "btn small", "新建组合");
+    const add = efundNode("button", "btn small pri", "新建组合");
     add.type = "button";
     add.addEventListener("click", () => openPortfolioCreate(top.id));
-    actions.append(edit);
     if (!top.archived && !top.has_snapshots) actions.append(add);
+    actions.append(edit);
     head.append(actions);
     block.append(head);
 
@@ -2406,7 +2406,7 @@ function renderAccountTree(tree) {
           efundNode("span", "account-value num", portfolio.latest_value_cents == null ? "—" : money(portfolio.latest_value_cents)),
           efundNode("span", "account-date num", portfolio.latest_as_of || "—"),
         );
-        const button = efundNode("button", "btn text", "编辑");
+        const button = efundNode("button", "btn small", "编辑");
         button.type = "button";
         button.addEventListener("click", () => openAccountEditor(portfolio.id));
         li.append(name, figures, button);
