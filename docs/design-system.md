@@ -281,4 +281,4 @@
 - 金额走 `money()`/`signedMoney()`，用 `.num` 等宽右对齐。
 - 可点击的非按钮元素必须有键盘等价物和可见焦点。
 - 新逻辑能抽成纯函数时，放到 `assets/*.mjs` 并用 `node assets/*.test.mjs` 覆盖。
-- 改版前后对比截图；除明确要求外，视觉应保持稳定。
+- 改版前后用 [`scripts/ui-preview`](../scripts/ui-preview/README.md) 的虚构数据预览对比截图；除明确要求外，视觉应保持稳定。
